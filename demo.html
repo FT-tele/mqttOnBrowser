@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>browserMQTT | 远程控制中心</title>
+    <link rel="icon" href="https://fav.farm/🌐">
+    <script src="./mqtt.min.js"></script>
+    <style>
+        :root { --primary: #2196F3; --bg: #f5f7fa; --card: #ffffff; --green: #4CAF50; --orange: #ff9800; }
+        body { font-family: -apple-system, sans-serif; background: var(--bg); margin: 0; padding: 15px; display: flex; flex-direction: column; align-items: center; }
+        .card { background: var(--card); border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); padding: 20px; width: 100%; max-width: 450px; margin-bottom: 15px; box-sizing: border-box; }
+        h3 { margin-top: 0; color: #333; font-size: 15px; border-left: 4px solid var(--primary); padding-left: 10px; margin-bottom: 20px; }
+        
+        #status-bar { font-size: 12px; color: #888; margin-bottom: 10px; width: 100%; max-width: 450px; display: flex; justify-content: space-between; }
+        .online-tag { color: var(--green); font-weight: bold; }
+
+        .dashboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .meter-box { text-align: center; }
+        canvas { width: 100%; height: auto; }
+        .meter-val { font-size: 24px; font-weight: bold; color: var(--primary); margin-top: -5px; }
+        
+        /* 交互元素 */
+        .btn-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+        .ctrl-btn { padding: 12px 5px; border: 1px solid #eee; background: #fafafa; border-radius: 8px; font-size: 13px; cursor: pointer; transition: 0.2s; }
+        .ctrl-btn:active { background: #e0e0e0; transform: scale(0.95); }
+        .input-group { display: flex; gap: 8px; }
+        .input-group input { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
+        .btn-send { background: var(--green); color: white; border: none; padding: 0 20px; border-radius: 8px; font-weight: bold; cursor: pointer; }
+
+        /* 文件预览区 */
+        .file-box { border: 2px dashed #ddd; padding: 15px; border-radius: 8px; text-align: center; cursor: pointer; margin-bottom: 10px; }
+        #recv-box { display: none; margin-top: 10px; padding: 12px; background: #e3f2fd; border-radius: 8px; font-size: 12px; }
+        #img-preview { max-width: 100%; margin-top: 8px; border-radius: 6px; display: none; border: 1px solid #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+
+        /* 配置遮罩 */
+        #config-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 100; padding: 25px; box-sizing: border-box; display: none; overflow-y: auto; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; font-size: 12px; color: #666; margin-bottom: 5px; }
+        .form-group input { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
+        .btn-save { background: var(--primary); color: white; border: none; width: 100%; padding: 15px; border-radius: 8px; font-weight: bold; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div id="status-bar">
+        <span>连接状态: <span id="mqtt-stat">未连接</span></span>
+        <span id="topic-hint" style="font-size: 10px;"></span>
+    </div>
+
+    <div class="card">
+        <h3>实时数据 (iot2wss)</h3>
+        <div class="dashboard-grid">
+            <div class="meter-box"><canvas id="meter1" width="150" height="100"></canvas><div id="val1" class="meter-val">0</div></div>
+            <div class="meter-box"><canvas id="meter2" width="150" height="100"></canvas><div id="val2" class="meter-val">0</div></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>文件传输 (Base64)</h3>
+        <div class="file-box" onclick="document.getElementById('file-input').click()">
+            <div style="font-size: 20px;">📤</div>
+            <div style="font-size: 12px; color:#666;">点击选择文件</div>
+            <input type="file" id="file-input" style="display:none" onchange="handleFile(this)">
+            <div id="file-info" style="font-size: 11px; margin-top:5px;"></div>
+        </div>
+        <button id="btn-file-send" class="ctrl-btn" style="width:100%; background:var(--orange); color:white; border:none; display:none;" onclick="sendFile()">发送文件到 IoT</button>
+        
+        <div id="recv-box">
+            <strong>📥 收到新文件:</strong> <span id="recv-name"></span>
+            <br><a id="dl-link" style="color:var(--primary); text-decoration:none; font-weight:bold;">[ 点击下载/保存 ]</a>
+            <img id="img-preview">
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>远程指令 & 文本 (wss2iot)</h3>
+        <div class="btn-grid" style="margin-bottom: 15px;">
+            <button class="ctrl-btn" onclick="sendCmd('item1', 'ON')">设备1 开启</button>
+            <button class="ctrl-btn" onclick="sendCmd('item2', 'ON')">设备2 开启</button>
+            <button class="ctrl-btn" onclick="sendCmd('reset', 'NOW')">系统复位</button>
+        </div>
+        <div class="input-group">
+            <input type="text" id="text-input" placeholder="输入控制文本...">
+            <button class="btn-send" onclick="sendText()">发送</button>
+        </div>
+    </div>
+
+    <button onclick="localStorage.removeItem('mqtt_iot_cfg'); location.reload();" style="margin-top:20px; background:none; border:none; color:#ccc; font-size:11px; text-decoration:underline; cursor:pointer;">重置连接参数</button>
+
+    <div id="config-overlay">
+        <h2 style="margin-top:0">browserMQTT 配置</h2>
+        <div class="form-group"><label>Broker Host (不带 wss://)</label><input type="text" id="cfg-host" placeholder="xxx.s1.eu.hivemq.cloud"></div>
+        <div class="form-group"><label>Port</label><input type="number" id="cfg-port" value="8884"></div>
+        <div class="form-group"><label>Username</label><input type="text" id="cfg-user"></div>
+        <div class="form-group"><label>Password</label><input type="password" id="cfg-pass"></div>
+        <div class="form-group"><label>Base Topic (不带末尾斜杠)</label><input type="text" id="cfg-topic" placeholder="home/esp32"></div>
+        <button class="btn-save" onclick="saveConfig()">保存并连接</button>
+    </div>
+
+<script>
+    let client = null; let config = null; let fBase64 = null; let fName = null;
+
+    function getTopic(suffix) {
+        if(!config || !config.topic) return "";
+        return config.topic.replace(/\/+$/, "") + "/" + suffix;
+    }
+
+    window.onload = () => {
+        const saved = localStorage.getItem('mqtt_iot_cfg');
+        if (saved) { config = JSON.parse(saved); connectMQTT(); } 
+        else { document.getElementById('config-overlay').style.display = 'block'; }
+        drawMeter('meter1', 0); drawMeter('meter2', 0);
+    };
+
+    function saveConfig() {
+        config = {
+            host: document.getElementById('cfg-host').value.trim(),
+            port: document.getElementById('cfg-port').value.trim(),
+            user: document.getElementById('cfg-user').value.trim(),
+            pass: document.getElementById('cfg-pass').value.trim(),
+            topic: document.getElementById('cfg-topic').value.trim()
+        };
+        localStorage.setItem('mqtt_iot_cfg', JSON.stringify(config));
+        location.reload();
+    }
+
+    function connectMQTT() {
+        const statEl = document.getElementById('mqtt-stat');
+        statEl.innerText = "正在握手...";
+        client = mqtt.connect(`wss://${config.host}:${config.port}/mqtt`, {
+            username: config.user, password: config.pass,
+            clientId: 'bmqtt_' + Math.random().toString(16).slice(2,8)
+        });
+
+        client.on('connect', () => {
+            statEl.innerText = "在线"; statEl.className = "online-tag";
+            const sub = getTopic("iot2wss");
+            client.subscribe(sub);
+            document.getElementById('topic-hint').innerText = "监听: " + sub;
+        });
+
+        client.on('message', (topic, payload) => {
+            const msg = payload.toString().trim();
+            // 兼容文件识别
+            if (msg.startsWith('{') && msg.includes('"file":')) {
+                try {
+                    const data = JSON.parse(msg);
+                    displayFile(data);
+                } catch(e) {}
+            } else {
+                try {
+                    const data = JSON.parse(msg);
+                    if(data.val1 !== undefined) updateMeter('meter1', 'val1', data.val1);
+                    if(data.val2 !== undefined) updateMeter('meter2', 'val2', data.val2);
+                } catch(e) {
+                    const n = parseFloat(msg); if(!isNaN(n)) updateMeter('meter1', 'val1', n);
+                }
+            }
+        });
+    }
+
+    function handleFile(input) {
+        const file = input.files[0]; if(!file) return;
+        if(file.size > 1024 * 700) return alert("文件过大 (限制 700KB)");
+        fName = file.name;
+        document.getElementById('file-info').innerText = fName + " (" + (file.size/1024).toFixed(1) + "KB)";
+        const reader = new FileReader();
+        reader.onload = (e) => { fBase64 = e.target.result; document.getElementById('btn-file-send').style.display = 'block'; };
+        reader.readAsDataURL(file);
+    }
+
+    function sendFile() {
+        if(!client || !client.connected) return;
+        const payload = JSON.stringify({ file: fBase64, name: fName, ts: Date.now() });
+        client.publish(getTopic("wss2iot"), payload);
+        alert("文件已编码并发送");
+        document.getElementById('btn-file-send').style.display = 'none';
+    }
+
+    function displayFile(data) {
+        document.getElementById('recv-box').style.display = 'block';
+        document.getElementById('recv-name').innerText = data.name;
+        const link = document.getElementById('dl-link');
+        link.href = data.file; link.download = data.name;
+        const pre = document.getElementById('img-preview');
+        if(data.file.startsWith('data:image')) { pre.src = data.file; pre.style.display = 'block'; }
+        else { pre.style.display = 'none'; }
+    }
+
+    function sendCmd(item, cmd) {
+        if(!client || !client.connected) return;
+        client.publish(getTopic("wss2iot"), JSON.stringify({ item, cmd, ts: Date.now() }));
+    }
+
+    function sendText() {
+        const input = document.getElementById('text-input');
+        if(!client || !client.connected || !input.value) return;
+        client.publish(getTopic("wss2iot"), input.value);
+        input.value = '';
+    }
+
+    function drawMeter(id, value) {
+        const canvas = document.getElementById(id); const ctx = canvas.getContext('2d');
+        const cx = canvas.width / 2, cy = canvas.height - 10, radius = 60;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.beginPath(); ctx.arc(cx, cy, radius, Math.PI, 2 * Math.PI);
+        ctx.lineWidth = 12; ctx.strokeStyle = '#f0f0f0'; ctx.stroke();
+        const p = Math.min(Math.max(value / 100, 0), 1);
+        ctx.beginPath(); ctx.arc(cx, cy, radius, Math.PI, Math.PI + (Math.PI * p));
+        ctx.lineWidth = 12; ctx.lineCap = 'round';
+        ctx.strokeStyle = value < 30 ? '#4CAF50' : (value < 70 ? '#FF9800' : '#F44336');
+        ctx.stroke();
+    }
+    function updateMeter(id, vid, v) { drawMeter(id, v); document.getElementById(vid).innerText = Math.round(v); }
+</script>
+</body>
+</html>
