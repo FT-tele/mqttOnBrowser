@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>IoT 控制 + 地图 + 图传 Demo</title>
+
+  <!-- CSP 安全策略 -->
+  <meta http-equiv="Content-Security-Policy" 
+        content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src wss:;">
+
+  <!-- 本地资源 -->
+  <script src="mqtt.min.js"></script>
+  <link rel="stylesheet" href="leaflet.css" />
+  <script src="leaflet.js"></script>
+
+  <style>
+    #map { height: 400px; margin-top: 20px; }
+    #cameras img { width: 320px; height: 240px; margin: 10px; border: 1px solid #ccc; }
+    .section { border: 1px solid #aaa; padding: 10px; margin: 10px; }
+  </style>
+</head>
+<body>
+  <h1>IoT 控制面板 Demo</h1>
+
+  <!-- 控制 Broker 登录 -->
+  <div class="section">
+    <h2>控制 Broker 登录</h2>
+    <label>URL: <input type="text" id="controlUrl" value="brokerA.example.com"></label><br>
+    <label>Port: <input type="number" id="controlPort" value="8883"></label><br>
+    <label>Topic: <input type="text" id="controlTopic" value="devices/#"></label><br>
+    <label>账号: <input type="text" id="controlUser"></label><br>
+    <label>密码: <input type="password" id="controlPass"></label><br>
+    <button onclick="connectControlBroker()">连接控制 Broker</button>
+  </div>
+
+  <!-- 图传 Broker 登录 -->
+  <div class="section">
+    <h2>图传 Broker 登录</h2>
+    <label>URL: <input type="text" id="cameraUrl" value="brokerB.example.com"></label><br>
+    <label>Port: <input type="number" id="cameraPort" value="8883"></label><br>
+    <label>Topic: <input type="text" id="cameraTopic" value="camera/stream/#"></label><br>
+    <label>账号: <input type="text" id="cameraUser"></label><br>
+    <label>密码: <input type="password" id="cameraPass"></label><br>
+    <button onclick="connectCameraBroker()">连接图传 Broker</button>
+  </div>
+
+  <!-- 设备控制面板 -->
+  <div class="section">
+    <h2>设备控制面板</h2>
+    <div id="devices"></div>
+  </div>
+
+  <!-- 地图显示 -->
+  <div class="section">
+    <h2>设备轨迹地图</h2>
+    <div id="map"></div>
+  </div>
+
+  <!-- 摄像头图传 -->
+  <div class="section">
+    <h2>摄像头图传</h2>
+    <div id="cameras"></div>
+  </div>
+
+  <!-- 云台控制 -->
+  <div class="section">
+    <h2>云台控制</h2>
+    <label>Pan: <input type="range" id="panSlider" min="-180" max="180" value="0"></label><br>
+    <label>Tilt: <input type="range" id="tiltSlider" min="-90" max="90" value="0"></label><br>
+    <label>Zoom: <input type="range" id="zoomSlider" min="1" max="10" value="1"></label>
+  </div>
+
+<script>
+let clientA, clientB;
+const trajectories = {};
+const map = L.map('map').setView([0,0], 2);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map);
+
+function connectControlBroker() {
+  clientA = mqtt.connect(`wss://${document.getElementById("controlUrl").value}:${document.getElementById("controlPort").value}`, {
+    username: document.getElementById("controlUser").value,
+    password: document.getElementById("controlPass").value
+  });
+  clientA.on("connect", () => {
+    clientA.subscribe(document.getElementById("controlTopic").value);
+    console.log("控制 Broker 已连接");
+  });
+  clientA.on("message", (topic, message) => {
+    if (topic.startsWith("devices/list")) {
+      const devices = JSON.parse(message.toString());
+      renderDevices(devices);
+    }
+    if (topic.startsWith("device/status/")) {
+      const state = JSON.parse(message.toString());
+      updateDeviceState(state);
+    }
+    if (topic.startsWith("device/trajectory/")) {
+      const data = JSON.parse(message.toString());
+      updateTrajectory(data);
+    }
+  });
+}
+
+function connectCameraBroker() {
+  clientB = mqtt.connect(`wss://${document.getElementById("cameraUrl").value}:${document.getElementById("cameraPort").value}`, {
+    username: document.getElementById("cameraUser").value,
+    password: document.getElementById("cameraPass").value
+  });
+  clientB.on("connect", () => {
+    clientB.subscribe(document.getElementById("cameraTopic").value);
+    console.log("图传 Broker 已连接");
+  });
+  clientB.on("message", (topic, message) => {
+    if (topic.startsWith("camera/stream/")) {
+      const deviceId = topic.split("/")[2];
+      let imgEl = document.getElementById("camera-" + deviceId);
+      if (!imgEl) {
+        imgEl = document.createElement("img");
+        imgEl.id = "camera-" + deviceId;
+        document.getElementById("cameras").appendChild(imgEl);
+      }
+      imgEl.src = "data:image/jpeg;base64," + message.toString();
+    }
+  });
+}
+
+function renderDevices(devices) {
+  const container = document.getElementById("devices");
+  container.innerHTML = "";
+  devices.forEach(d => {
+    const div = document.createElement("div");
+    div.innerHTML = `${d.id} (${d.type}) 状态: ${d.state}`;
+    container.appendChild(div);
+  });
+}
+
+function updateDeviceState(state) {
+  console.log("更新设备状态", state);
+}
+
+function updateTrajectory(data) {
+  if (!trajectories[data.id]) {
+    trajectories[data.id] = L.polyline([], { color: 'blue' }).addTo(map);
+  }
+  const coords = L.Polyline.fromEncoded(data.polyline).getLatLngs();
+  trajectories[data.id].setLatLngs(coords);
+}
+
+// 云台控制
+document.getElementById("panSlider").addEventListener("input", () => {
+  clientA.publish("camera/control/camera1", JSON.stringify({ id: "camera1", pan: parseInt(panSlider.value) }));
+});
+document.getElementById("tiltSlider").addEventListener("input", () => {
+  clientA.publish("camera/control/camera1", JSON.stringify({ id: "camera1", tilt: parseInt(tiltSlider.value) }));
+});
+document.getElementById("zoomSlider").addEventListener("input", () => {
+  clientA.publish("camera/control/camera1", JSON.stringify({ id: "camera1", zoom: parseInt(zoomSlider.value) }));
+});
+</script>
+</body>
+</html>
