@@ -14,9 +14,69 @@
   <script src="leaflet.js"></script>
 
   <style>
-    #map { height: 400px; margin-top: 20px; }
-    #cameras img { width: 320px; height: 240px; margin: 10px; border: 1px solid #ccc; }
-    .section { border: 1px solid #aaa; padding: 10px; margin: 10px; }
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: #f5f7fa;
+      margin: 0;
+      padding: 20px;
+      color: #333;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 30px;
+      color: #2c3e50;
+    }
+    .section {
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      padding: 20px;
+      margin: 20px auto;
+      max-width: 800px;
+    }
+    .section h2 {
+      margin-top: 0;
+      color: #34495e;
+      border-bottom: 2px solid #eee;
+      padding-bottom: 8px;
+    }
+    label {
+      display: block;
+      margin: 10px 0;
+    }
+    input[type="text"], input[type="number"], input[type="password"] {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    button {
+      background: #3498db;
+      color: #fff;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    button:hover {
+      background: #2980b9;
+    }
+    #map { height: 400px; margin-top: 20px; border-radius: 8px; }
+    #cameras {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+    }
+    #cameras img {
+      width: 320px;
+      height: 240px;
+      border-radius: 6px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    }
+    input[type="range"] {
+      width: 100%;
+    }
   </style>
 </head>
 <body>
@@ -25,22 +85,22 @@
   <!-- 控制 Broker 登录 -->
   <div class="section">
     <h2>控制 Broker 登录</h2>
-    <label>URL: <input type="text" id="controlUrl" value="brokerA.example.com"></label><br>
-    <label>Port: <input type="number" id="controlPort" value="8883"></label><br>
-    <label>Topic: <input type="text" id="controlTopic" value="devices/#"></label><br>
-    <label>账号: <input type="text" id="controlUser"></label><br>
-    <label>密码: <input type="password" id="controlPass"></label><br>
+    <label>URL: <input type="text" id="controlUrl" value="brokerA.example.com"></label>
+    <label>Port: <input type="number" id="controlPort" value="8883"></label>
+    <label>Topic: <input type="text" id="controlTopic" value="devices/#"></label>
+    <label>账号: <input type="text" id="controlUser"></label>
+    <label>密码: <input type="password" id="controlPass"></label>
     <button onclick="connectControlBroker()">连接控制 Broker</button>
   </div>
 
   <!-- 图传 Broker 登录 -->
   <div class="section">
     <h2>图传 Broker 登录</h2>
-    <label>URL: <input type="text" id="cameraUrl" value="brokerB.example.com"></label><br>
-    <label>Port: <input type="number" id="cameraPort" value="8883"></label><br>
-    <label>Topic: <input type="text" id="cameraTopic" value="camera/stream/#"></label><br>
-    <label>账号: <input type="text" id="cameraUser"></label><br>
-    <label>密码: <input type="password" id="cameraPass"></label><br>
+    <label>URL: <input type="text" id="cameraUrl" value="brokerB.example.com"></label>
+    <label>Port: <input type="number" id="cameraPort" value="8883"></label>
+    <label>Topic: <input type="text" id="cameraTopic" value="camera/stream/#"></label>
+    <label>账号: <input type="text" id="cameraUser"></label>
+    <label>密码: <input type="password" id="cameraPass"></label>
     <button onclick="connectCameraBroker()">连接图传 Broker</button>
   </div>
 
@@ -65,8 +125,8 @@
   <!-- 云台控制 -->
   <div class="section">
     <h2>云台控制</h2>
-    <label>Pan: <input type="range" id="panSlider" min="-180" max="180" value="0"></label><br>
-    <label>Tilt: <input type="range" id="tiltSlider" min="-90" max="90" value="0"></label><br>
+    <label>Pan: <input type="range" id="panSlider" min="-180" max="180" value="0"></label>
+    <label>Tilt: <input type="range" id="tiltSlider" min="-90" max="90" value="0"></label>
     <label>Zoom: <input type="range" id="zoomSlider" min="1" max="10" value="1"></label>
   </div>
 
@@ -129,7 +189,9 @@ function renderDevices(devices) {
   container.innerHTML = "";
   devices.forEach(d => {
     const div = document.createElement("div");
-    div.innerHTML = `${d.id} (${d.type}) 状态: ${d.state}`;
+    div.style.padding = "8px";
+    div.style.borderBottom = "1px solid #eee";
+    div.innerHTML = `<strong>${d.id}</strong> (${d.type}) 状态: ${d.state}`;
     container.appendChild(div);
   });
 }
@@ -148,14 +210,4 @@ function updateTrajectory(data) {
 
 // 云台控制
 document.getElementById("panSlider").addEventListener("input", () => {
-  clientA.publish("camera/control/camera1", JSON.stringify({ id: "camera1", pan: parseInt(panSlider.value) }));
-});
-document.getElementById("tiltSlider").addEventListener("input", () => {
-  clientA.publish("camera/control/camera1", JSON.stringify({ id: "camera1", tilt: parseInt(tiltSlider.value) }));
-});
-document.getElementById("zoomSlider").addEventListener("input", () => {
-  clientA.publish("camera/control/camera1", JSON.stringify({ id: "camera1", zoom: parseInt(zoomSlider.value) }));
-});
-</script>
-</body>
-</html>
+  clientA.publish("camera/control/camera1", JSON.stringify({ id: "camera1", pan: parseInt(panSlider
