@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="referrer" content="no-referrer">
+    <title>工业级统一无人值守大屏 v2.0</title>
+    <link rel="icon" href="https://fav.farm/🎛️">
+    
+    <script src="mqtt.min.js"></script>
+    <link rel="stylesheet" href="leaflet.css" />
+    <script src="leaflet.js"></script>
+
+    <style>
+        :root {
+            --primary: #03a9f4;
+            --primary-bg: rgba(3, 169, 244, 0.08);
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #1e293b;
+            --text-sub: #64748b;
+            --border-color: #e2e8f0;
+            --radius: 16px;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg-color); margin: 0; padding: 24px 16px; display: flex; flex-direction: column; align-items: center; color: var(--text-main); }
+        #status-bar { font-size: 13px; color: var(--text-sub); margin-bottom: 16px; width: 100%; max-width: 420px; display: flex; justify-content: space-between; background: var(--card-bg); padding: 14px 16px; border-radius: var(--radius); border: 1px solid var(--border-color); box-shadow: 0 1px 2px rgba(0,0,0,0.02); }
+        .online-tag { color: #10b981; font-weight: bold; }
+        .fault-tag { color: #ef4444; font-weight: bold; }
+        #dynamic-panel { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 16px; }
+        .dynamic-card { background: var(--card-bg); border-radius: var(--radius); border: 1px solid var(--border-color); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02), 0 2px 4px -1px rgba(0,0,0,0.01); padding: 24px; box-sizing: border-box; }
+        .card-title { font-size: 15px; font-weight: 600; color: var(--text-main); display: flex; justify-content: space-between; align-items: center; }
+        .iot-switch { position: relative; display: inline-block; width: 50px; height: 26px; }
+        .iot-switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .3s; border-radius: 26px; }
+        .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
+        .iot-switch input:checked + .slider { background-color: var(--primary); }
+        .iot-switch input:checked + .slider:before { transform: translateX(24px); }
+        .iot-slider { -webkit-appearance: none; width: 100%; height: 6px; background: #e2e8f0; border-radius: 99px; outline: none; margin: 8px 0; }
+        .iot-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%; background: var(--primary); cursor: pointer; box-shadow: 0 2px 4px rgba(3,169,244,0.25); }
+        .gauge-container { display: flex; justify-content: center; align-items: center; position: relative; width: 100%; height: 140px; }
+        .gauge-svg { transform: rotate(-90deg); width: 140px; height: 140px; }
+        .gauge-bg-track { fill: none; stroke: #e2e8f0; stroke-width: 10; stroke-linecap: round; }
+        .gauge-progress { fill: none; stroke: var(--primary); stroke-width: 12; stroke-linecap: round; stroke-dasharray: 377; stroke-dashoffset: 377; transition: stroke-dashoffset 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .gauge-center-text { position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .gauge-value { font-size: 28px; font-weight: 700; color: var(--text-main); line-height: 1; }
+        .iot-map-canvas { width: 100%; height: 220px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border-color); }
+        #iot-toast { position: fixed; bottom: 30px; background: rgba(15, 23, 42, 0.92); color: #fff; padding: 12px 24px; border-radius: 30px; font-size: 13px; font-weight: 500; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3); z-index: 9999; transform: translateY(100px); opacity: 0; transition: all 0.3s; }
+        #iot-toast.show { transform: translateY(0); opacity: 1; }
+        
+        .time-picker-wrapper { display: flex; gap: 10px; width: 100%; align-items: center; }
+        .iot-time-picker { -webkit-appearance: none; background: #f1f5f9; border: 1px solid var(--border-color); border-radius: 10px; padding: 10px; font-size: 16px; font-weight: 700; color: var(--text-main); flex: 1; text-align: center; outline: none; }
+        .time-submit-btn { background: var(--primary); color: white; border: none; border-radius: 10px; padding: 0 16px; font-size: 13px; font-weight: 600; cursor: pointer; height: 42px; display: flex; align-items: center; justify-content: center; }
+        #config-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg-color); z-index: 100; padding: 32px 24px; box-sizing: border-box; display: none; overflow-y: auto; }
+        .form-group { margin-bottom: 14px; display: flex; flex-direction: column; gap: 4px; }
+        .form-group label { font-size: 13px; color: var(--text-sub); font-weight: 500; }
+        .native-input { border: 1px solid var(--border-color); border-radius: 10px; padding: 10px 14px; font-size: 14px; outline: none; background: #fff; height: 42px; box-sizing: border-box; }
+        .native-btn { background: var(--primary); color: #fff; border: none; padding: 12px; border-radius: 10px; font-size: 15px; cursor: pointer; font-weight: bold; }
+
+        /* 🆕 整合组件新增的专用移动端原子样式 */
+        .list-container { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+        .list-row { display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; font-size: 14px; cursor: pointer; transition: background 0.2s; }
+        .list-row:active { background: #f1f5f9; }
+        .list-badge { font-weight: 700; color: var(--primary); font-size: 13px; background: var(--primary-bg); padding: 4px 10px; border-radius: 20px; }
+        
+        .chart-svg-box { width: 100%; height: 160px; margin-top: 12px; }
+        .chart-axis { stroke: #cbd5e1; stroke-width: 1; }
+        .chart-grid { stroke: #f1f5f9; stroke-width: 1; stroke-dasharray: 4; }
+        .chart-label { font-size: 10px; fill: #64748b; text-anchor: middle; }
+        .chart-line { fill: none; stroke: var(--primary); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+        .chart-area { fill: url(#chart-grad); opacity: 0.15; }
+        .chart-bar { fill: var(--primary); rx: 4; transition: height 0.3s, y 0.3s; cursor: pointer; }
+        .chart-bar:hover { fill: #0288d1; }
+        
+        .pie-layout { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
+        .pie-legend { display: flex; flex-direction: column; gap: 6px; width: 45%; }
+        .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-main); }
+        .legend-color { width: 10px; height: 10px; border-radius: 3px; }
+
+        /* 二级详情浮层 */
+        .details-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.6); z-index:999; display:none; align-items:flex-end; }
+        .details-sheet { background:#fff; width:100%; border-top-left-radius:20px; border-top-right-radius:20px; padding:24px; box-sizing:border-box; max-height:80%; overflow-y:auto; transform:translateY(100%); transition:transform 0.3s ease-out; }
+        .details-sheet.up { transform:translateY(0); }
+        .details-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid #e2e8f0; padding-bottom:12px; }
+        .sub-option-row { display:flex; justify-content:space-between; align-items:center; padding:14px; border-bottom:1px solid #f1f5f9; cursor:pointer; }
+        .sub-option-radio { width:18px; height:18px; border-radius:50%; border:2px solid #cbd5e1; display:flex; align-items:center; justify-content:center; }
+        .sub-option-row.active .sub-option-radio { border-color:var(--primary); background:var(--primary); }
+        .sub-option-row.active .sub-option-radio::after { content:""; width:6px; height:6px; background:#fff; border-radius:50%; }
+		
+		
+		/* 1. 锁死网页最外层，禁止浏览器橡皮筋套娃 */
+html, body {
+    height: 100%;
+    overflow: hidden; /* 彻底切断浏览器原生视口的滚动条 */
+}
+
+/* 2. 让动态面板成为全屏唯一的“顺滑滚动源” */
+#dynamic-panel {
+    height: calc(100vh - 100px); /* 扣除顶部状态栏和边距的高度 */
+    overflow-y: auto;            /* 只有这一层允许纵向滚动 */
+    padding-bottom: 40px;        /* 底部留白，防止最后一个组件被遮挡 */
+    -webkit-overflow-scrolling: touch; /* 启用 iOS 硬件加速，滚起来极度顺滑 */
+}
+
+    </style>
+</head>
+<body>
+
+    <div id="status-bar">
+        <span>网络通道: <span id="mqtt-stat">未连接</span></span>
+        <span id="hint" style="color:var(--primary);">大屏已就绪</span>
+    </div>
+
+    <div id="dynamic-panel"></div>
+    
+    <div style="margin-top: 36px; text-align: center;">
+        <button class="native-btn" style="background:#64748b; font-size:11px; padding:6px 12px;" onclick="resetAll()">重置配置并刷新</button>
+    </div>
+
+<div id="config-overlay">
+    <h3 style="text-align:center; margin-top:0; font-weight:700;">WSS 移动大屏配置面板</h3>
+    <div class="form-group">
+        <label>Broker Host</label>
+        <input type="text" id="cfg-host" class="native-input" placeholder="g163f01a.ala.cn-hangzhou.emqxsl.cn">
+    </div>
+    <div class="form-group">
+        <label>Port</label>
+        <input type="number" id="cfg-port" class="native-input" placeholder="8084">
+    </div>
+    <div class="form-group">
+        <label>Username</label>
+        <input type="text" id="cfg-user" class="native-input" placeholder="wssName">
+    </div>
+    <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="cfg-pass" class="native-input" placeholder="Password">
+    </div>
+    <div class="form-group">
+        <label>订阅 Topic</label>
+        <input type="text" id="cfg-sub-topic" class="native-input" placeholder="home/esp32/iot2wss">
+    </div>
+    <div class="form-group">
+        <label>发布 Topic</label>
+        <input type="text" id="cfg-pub-topic" class="native-input" placeholder="home/esp32/wss2iot">
+    </div>
+    <button class="native-btn" style="width:100%; margin-top:16px;" onclick="saveConfig()">保存并连接</button>
+</div>
+    
+    <div id="iot-toast"></div>
+
+    <div id="global-details-overlay" class="details-overlay" onclick="closeDetailsSheet()">
+        <div class="details-sheet" onclick="event.stopPropagation()">
+            <div class="details-header">
+                <h4 id="details-sheet-title" style="margin:0;font-weight:700;">配置详情</h4>
+                <span style="color:var(--text-sub);cursor:pointer;font-weight:bold;padding:4px 8px;" onclick="closeDetailsSheet()">关闭</span>
+            </div>
+            <div id="details-options-box"></div>
+        </div>
+    </div>
+
+<script>
+// ====================== 核心全局状态 ======================
+const APP_VERSION = "2.0.0-mobile";
+let client = null;
+let config = null;
+let gaugeMeta = {};
+let mapInstances = {};
+let lastHeartbeat = Date.now();
+
+// 🆕 图表与动态列表的轻量状态容器
+let chartAndListMeta = {};
+let activeListId = null;
+
+const Logger = {
+    log(level, msg, data = null) {
+        console[level](`[LiveUI] ${msg}`, data || '');
+    }
+};
+
+// ==================== 安全存储与混淆 ====================
+const _secureSalt = "Industrial_Unified_Live_UI_2026";
+function _xorObfuscate(str) { 
+    if (!str) return "";
+    let res = "";
+    for (let i = 0; i < str.length; i++) {
+        res += String.fromCharCode(str.charCodeAt(i) ^ _secureSalt.charCodeAt(i % _secureSalt.length));
+    }
+    return btoa(encodeURIComponent(res));
+}
+function _xorDeobfuscate(b64) { 
+    if (!b64) return "";
+    try {
+        let str = decodeURIComponent(atob(b64));
+        let res = "";
+        for (let i = 0; i < str.length; i++) {
+            res += String.fromCharCode(str.charCodeAt(i) ^ _secureSalt.charCodeAt(i % _secureSalt.length));
+        }
+        return res;
+    } catch(e) { return null; }
+}
+function safeSetItem(key, obj) {
+    try { localStorage.setItem(key, _xorObfuscate(JSON.stringify(obj))); } catch(e){}
+}
+function safeGetItem(key) {
+    try {
+        const val = localStorage.getItem(key);
+        if (!val) return null;
+        const raw = _xorDeobfuscate(val);
+        return raw ? JSON.parse(raw) : null;
+    } catch(e) { return null; }
+}
+
+// ==================== 坐标纠偏算法 ====================
+const PI = 3.1415926535897932384626;
+const ee = 0.00669342162296594323;
+const a = 6378245.0;
+
+function outOfChina(lat, lng) { 
+    return (lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271); 
+}
+
+function transformLat(x, y) {
+    let ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+    ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
+    ret += (20.0 * Math.sin(y * PI) + 40.0 * Math.sin(y / 3.0 * PI)) * 2.0 / 3.0;
+    ret += (160.0 * Math.sin(y / 12.0 * PI) + 320 * Math.sin(y * PI / 30.0)) * 2.0 / 3.0;
+    return ret;
+}
+
+function transformLng(x, y) {
+    let ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+    ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
+    ret += (20.0 * Math.sin(x * PI) + 40.0 * Math.sin(x / 3.0 * PI)) * 2.0 / 3.0;
+    ret += (150.0 * Math.sin(x / 12.0 * PI) + 300.0 * Math.sin(x * PI / 30.0)) * 2.0 / 3.0;
+    return ret;
+}
+
+function wgs84ToGcj02(wgLat, wgLng) {
+    if (outOfChina(wgLat, wgLng)) return { lat: wgLat, lng: wgLng };
+    let dLat = transformLat(wgLng - 105.0, wgLat - 35.0);
+    let dLng = transformLng(wgLng - 105.0, wgLat - 35.0);
+    let radLat = wgLat / 180.0 * PI;
+    let magic = Math.sin(radLat);
+    magic = 1 - ee * magic * magic;
+    let sqrtMagic = Math.sqrt(magic);
+    dLat = (dLat * 180.0) / ((a * (1 - ee)) / (magic * sqrtMagic) * PI);
+    dLng = (dLng * 180.0) / (a / sqrtMagic * Math.cos(radLat) * PI);
+    return { lat: wgLat + dLat, lng: wgLng + dLng };
+}
+
+function gcj02ToWgs84(gcjLat, gcjLng) {
+    if (outOfChina(gcjLat, gcjLng)) return { lat: gcjLat, lng: gcjLng };
+    let curr = wgs84ToGcj02(gcjLat, gcjLng);
+    return { lat: gcjLat - (curr.lat - gcjLat), lng: gcjLng - (curr.lng - gcjLng) };
+}
+
+function showToast(msg) {
+    const toast = document.getElementById('iot-toast');
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(() => toast.classList.remove('show'), 2800);
+}
+
+// ==================== MQTT 基础网络管理 ====================
+class IndustrialMQTT {
+    constructor() {
+        this.status = "offline";
+        this.heartbeatTimer = null;
+    }
+
+    connect(cfg) {
+        config = cfg;
+        const statEl = document.getElementById('mqtt-stat');
+
+        if (client) {
+            try { client.end(true); client.removeAllListeners(); } catch(e){}
+        }
+        
+        const wsUrl = `wss://${cfg.host}:${cfg.port}${cfg.host.includes('hivemq') || cfg.host.includes('emqx') ? '/mqtt' : ''}`;
+
+        client = mqtt.connect(wsUrl, {
+            clientId: this.getClientId(),
+            username: cfg.user || undefined,
+            password: cfg.pass || undefined,
+            keepalive: 45,
+            clean: false,
+            reconnectPeriod: 6000,
+            connectTimeout: 12000,
+            will: {
+                topic: cfg.pubTopic,
+                payload: JSON.stringify({type: "offline", clientId: this.getClientId(), ts: Date.now()}),
+                qos: 1,
+                retain: true
+            }
+        });
+
+        client.on('connect', () => {
+            this.status = "connected";
+            statEl.textContent = "在线监听";
+            statEl.className = "online-tag";
+            client.subscribe(cfg.subTopic, { qos: 1 });
+            this.startHeartbeat();
+            showToast("🚀 安全通道已建立");
+        });
+
+        client.on('message', (_, payload) => {
+            lastHeartbeat = Date.now();
+            this.processPayload(payload);
+        });
+
+        client.on('reconnect', () => { statEl.textContent = "正在重连..."; });
+        client.on('close', () => { 
+            this.status = "offline"; 
+            statEl.textContent = "已断开"; 
+            this.stopHeartbeat(); 
+        });
+        client.on('error', (err) => Logger.log('error', 'MQTT Error', err));
+    }
+
+    getClientId() {
+        let id = localStorage.getItem('iot_fixed_client_id');
+        if (!id) {
+            id = 'IND_UI_' + Math.random().toString(16).slice(2,12);
+            localStorage.setItem('iot_fixed_client_id', id);
+        }
+        return id;
+    }
+
+    startHeartbeat() {
+        if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+        this.heartbeatTimer = setInterval(() => {
+            if (client && client.connected) {
+                client.publish(config.pubTopic, JSON.stringify({type:"heartbeat", ts:Date.now()}), {qos:0});
+            }
+        }, 25000);
+    }
+
+    stopHeartbeat() {
+        if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    }
+
+    publish(id, value) {
+        if (!client || !client.connected) return;
+        client.publish(config.pubTopic, JSON.stringify({
+            action: "control",
+            id: id,
+            value: value,
+            ts: Date.now()
+        }), {qos: 1});
+    }
+
+    processPayload(payload) {
+        try {
+            const rawStr = payload.toString();
+            const data = JSON.parse(rawStr);
+            
+            if (data.type === "ui_setup" && Array.isArray(data.controls)) {
+                UIFactory.renderLiveUI(data.controls);
+            } else if (data.type === "ui_update" && data.id !== undefined) {
+                UIFactory.updateLiveComponent(data.id, data.val);
+            } 
+            // ⬇️ 只需要把下面这段批量更新的逻辑，紧跟在上面 ui_update 的大括号后面即可
+            else if (data.type === "ui_update_batch" && Array.isArray(data.data)) {
+                data.data.forEach(item => {
+                    UIFactory.updateLiveComponent(item.id, item.val);
+                });
+            }
+        } catch (e) {
+            Logger.log('warn', 'Payload 解析异常', e);
+        }
+    }
+}
+
+// ==================== 地图生命周期管理 ====================
+const MapManager = {
+    init(ctrl) {
+        let map = L.map('map-obj-' + ctrl.id, { zoomControl: false, attributionControl: false }).setView([34.3416, 108.9398], 4);
+        let provider = ctrl.provider || 'amap';
+        let layerUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+        let layerOptions = { maxZoom: 18, minZoom: 2, subdomains: ["a", "b", "c"] };
+
+        if (provider === 'amap') {
+            layerUrl = 'https://webrd0{s}.is.autonavi.com/appmaptile?style=7&x={x}&y={y}&z={z}&lang=zh_cn&size=1&scale=1';
+            layerOptions.subdomains = ["1", "2", "3", "4"];
+        } else if (provider === 'google') {
+            layerUrl = 'https://mt{s}.google.com/vt/lyrs=m&hl=zh-CN&gl=cn&x={x}&y={y}&z={z}';
+            layerOptions.subdomains = ["0", "1", "2", "3"];
+        }
+
+        L.tileLayer(layerUrl, layerOptions).addTo(map);
+        mapInstances[ctrl.id] = { map: map, marker: null, currentProvider: provider, dataType: ctrl.dataType || 'wgs84' };
+    },
+
+    updateMarker(id, val) {
+        let instance = mapInstances[id];
+        if (!instance) return;
+        let targetLat = parseFloat(val.lat);
+        let targetLng = parseFloat(val.lng);
+        if (isNaN(targetLat) || isNaN(targetLng)) return;
+
+        let inputType = val.type || instance.dataType;
+
+        if (instance.currentProvider === 'amap' || instance.currentProvider === 'google') {
+            if (inputType === 'wgs84') {
+                let corrected = wgs84ToGcj02(targetLat, targetLng);
+                targetLat = corrected.lat; targetLng = corrected.lng;
+            }
+        } else {
+            if (inputType === 'gcj02') {
+                let corrected = gcj02ToWgs84(targetLat, targetLng);
+                targetLat = corrected.lat; targetLng = corrected.lng;
+            }
+        }
+
+        let pos = [targetLat, targetLng];
+        if (!instance.marker) {
+            instance.marker = L.marker(pos).addTo(instance.map);
+            instance.map.setView(pos, 14);
+        } else {
+            instance.marker.setLatLng(pos);
+        }
+
+        if (val.info !== undefined && val.info !== null) {
+            const popupNode = document.createElement('div');
+            const boldNode = document.createElement('b');
+            boldNode.textContent = String(val.info);
+            popupNode.appendChild(boldNode);
+            instance.marker.bindPopup(popupNode).openPopup();
+        }
+    }
+};
+
+// ==================== 🆕 详情浮层事件管理 ====================
+function openDetailsSheet(listId, itemIndex) {
+    activeListId = listId;
+    const listData = chartAndListMeta[listId];
+    if (!listData || !listData[itemIndex]) return;
+    
+    const targetItem = listData[itemIndex];
+    document.getElementById('details-sheet-title').textContent = targetItem.label;
+    
+    const container = document.getElementById('details-options-box');
+    container.innerHTML = "";
+    
+    targetItem.sub_menu.forEach(opt => {
+        const row = document.createElement('div');
+        row.className = `sub-option-row ${opt.val === targetItem.current_val ? 'active' : ''}`;
+        row.onclick = function() {
+            // 原生支持：选择后直接发布动作给后端
+            sendUiAction(listId, {
+                parent_label: targetItem.label,
+                selected_val: opt.val,
+                selected_label: opt.label
+            });
+            closeDetailsSheet();
+        };
+        
+        const labelSpan = document.createElement('span');
+        labelSpan.textContent = opt.label;
+        const radioDiv = document.createElement('div');
+        radioDiv.className = "sub-option-radio";
+        
+        row.appendChild(labelSpan);
+        row.appendChild(radioDiv);
+        container.appendChild(row);
+    });
+    
+    const overlay = document.getElementById('global-details-overlay');
+    overlay.style.display = "flex";
+    setTimeout(() => overlay.firstElementChild.classList.add('up'), 10);
+}
+
+function closeDetailsSheet() {
+    const overlay = document.getElementById('global-details-overlay');
+    overlay.firstElementChild.classList.remove('up');
+    setTimeout(() => overlay.style.display = "none", 300);
+}
+
+// ==================== 组件卡片工厂 ====================
+const CardFactory = {
+    createHeader(ctrl, icon) {
+        const row = document.createElement('div'); row.className = "card-title";
+        const span = document.createElement('span'); span.textContent = icon + (ctrl.title || "");
+        row.appendChild(span); return row;
+    },
+    switch(ctrl) {
+        const card = document.createElement('div'); card.className = "dynamic-card"; card.id = "card-" + ctrl.id;
+        const header = this.createHeader(ctrl, "💡 ");
+        const label = document.createElement('label'); label.className = "iot-switch";
+        const input = document.createElement('input'); input.type = "checkbox"; input.id = "el-" + ctrl.id;
+        input.onchange = function() { sendUiAction(ctrl.id, this.checked ? "ON" : "OFF"); };
+        label.appendChild(input); label.appendChild(document.createElement('span')).className = "slider";
+        header.appendChild(label); card.appendChild(header); return card;
+    },
+    slider(ctrl) {
+        const card = document.createElement('div'); card.className = "dynamic-card"; card.id = "card-" + ctrl.id;
+        let min = ctrl.min !== undefined ? ctrl.min : 0; let val = ctrl.value !== undefined ? ctrl.value : min;
+        const header = this.createHeader(ctrl, "🎚️ ");
+        const valTxt = document.createElement('span'); valTxt.id = "txt-" + ctrl.id;
+        valTxt.style.cssText = "color:var(--primary); font-weight:700;"; valTxt.textContent = val;
+        header.appendChild(valTxt); card.appendChild(header);
+        
+        const input = document.createElement('input'); input.type = "range"; input.id = "el-" + ctrl.id;
+        input.min = min; input.max = ctrl.max || 100; input.value = val; input.className = "iot-slider";
+        input.onchange = function() { sendUiAction(ctrl.id, this.value); };
+        input.oninput = function() { valTxt.textContent = this.value; };
+        card.appendChild(input); return card;
+    },
+    gauge(ctrl) {
+        const card = document.createElement('div'); card.className = "dynamic-card"; card.id = "card-" + ctrl.id;
+        card.appendChild(this.createHeader(ctrl, "🧭 "));
+        const container = document.createElement('div'); container.className = "gauge-container";
+        container.innerHTML = `<svg class="gauge-svg" viewBox="0 0 140 140"><circle class="gauge-bg-track" cx="70" cy="70" r="60"></circle><circle id="svg-stroke-${ctrl.id}" class="gauge-progress" cx="70" cy="70" r="60"></circle></svg><div class="gauge-center-text"><span id="svg-txt-${ctrl.id}" class="gauge-value">--</span><span class="gauge-unit">实时读数</span></div>`;
+        card.appendChild(container); return card;
+    },
+    time_picker(ctrl) {
+        const card = document.createElement('div'); card.className = "dynamic-card"; card.id = "card-" + ctrl.id;
+        card.appendChild(this.createHeader(ctrl, "⏰ "));
+        const wrapper = document.createElement('div'); wrapper.className = "time-picker-wrapper";
+        const input = document.createElement('input'); input.type = "time"; input.id = "el-" + ctrl.id; input.className = "iot-time-picker"; input.value = ctrl.value || "12:00";
+        const btn = document.createElement('button'); btn.className = "time-submit-btn"; btn.textContent = "提交";
+        btn.onclick = function() { sendUiAction(ctrl.id, input.value); };
+        wrapper.appendChild(input); wrapper.appendChild(btn); card.appendChild(wrapper); return card;
+    },
+    map(ctrl) {
+        const card = document.createElement('div'); card.className = "dynamic-card"; card.id = "card-" + ctrl.id;
+        card.appendChild(this.createHeader(ctrl, "🗺️ "));
+        const mapDiv = document.createElement('div'); mapDiv.id = "map-obj-" + ctrl.id; mapDiv.className = "iot-map-canvas";
+        card.appendChild(mapDiv); return card;
+    },
+
+    // 🆕 新增：动态列表组件
+    list(ctrl) {
+        const card = document.createElement('div'); card.className = "dynamic-card"; card.id = "card-" + ctrl.id;
+        card.appendChild(this.createHeader(ctrl, "📋 "));
+        const container = document.createElement('div'); container.className = "list-container"; container.id = "list-box-" + ctrl.id;
+        card.appendChild(container);
+        return card;
+    },
+
+    // 🆕 新增：原生态高级 SVG 折线图组件
+    line_chart(ctrl) {
+        const card = document.createElement('div'); card.className = "dynamic-card"; card.id = "card-" + ctrl.id;
+        card.appendChild(this.createHeader(ctrl, "📈 "));
+        const svgBox = document.createElement('div'); svgBox.className = "chart-svg-box";
+        svgBox.innerHTML = `
+            <svg width="100%" height="100%" viewBox="0 0 380 160" preserveAspectRatio="none">
+                <defs>
+                    <linearGradient id="chart-grad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="var(--primary)"></stop>
+                        <stop offset="100%" stop-color="var(--primary)" stop-opacity="0"></stop>
+                    </linearGradient>
+                </defs>
+                <line x1="40" y1="20" x2="360" y2="20" class="chart-grid"></line>
+                <line x1="40" y1="70" x2="360" y2="70" class="chart-grid"></line>
+                <line x1="40" y1="120" x2="360" y2="120" class="chart-grid"></line>
+                <line x1="40" y1="10" x2="40" y2="130" class="chart-axis"></line>
+                <line x1="40" y1="130" x2="370" y2="130" class="chart-axis"></line>
+                <g id="line-labels-${ctrl.id}"></g>
+                <path id="line-area-${ctrl.id}" class="chart-area" d="M 40 130 L 40 130 Z"></path>
+                <path id="line-path-${ctrl.id}" class="chart-line" d="M 40 130"></path>
+            </svg>`;
+        card.appendChild(svgBox);
+        return card;
+    },
+
+    // 🆕 新增：原生态高级 SVG 柱状图组件
+    bar_chart(ctrl) {
+        const card = document.createElement('div'); card.className = "dynamic-card"; card.id = "card-" + ctrl.id;
+        card.appendChild(this.createHeader(ctrl, "📊 "));
+        const svgBox = document.createElement('div'); svgBox.className = "chart-svg-box";
+        svgBox.innerHTML = `
+            <svg width="100%" height="100%" viewBox="0 0 380 160" preserveAspectRatio="none">
+                <line x1="40" y1="20" x2="360" y2="20" class="chart-grid"></line>
+                <line x1="40" y1="70" x2="360" y2="70" class="chart-grid"></line>
+                <line x1="40" y1="120" x2="360" y2="120" class="chart-grid"></line>
+                <line x1="40" y1="10" x2="40" y2="130" class="chart-axis"></line>
+                <line x1="40" y1="130" x2="370" y2="130" class="chart-axis"></line>
+                <g id="bar-labels-${ctrl.id}"></g>
+                <g id="bar-group-${ctrl.id}"></g>
+            </svg>`;
+        card.appendChild(svgBox);
+        return card;
+    },
+
+    // 🆕 新增：原生态高级 SVG 饼图组件
+    pie_chart(ctrl) {
+        const card = document.createElement('div'); card.className = "dynamic-card"; card.id = "card-" + ctrl.id;
+        card.appendChild(this.createHeader(ctrl, "🍕 "));
+        const layout = document.createElement('div'); layout.className = "pie-layout";
+        layout.innerHTML = `
+            <svg width="130" height="130" viewBox="-70 -70 140 140" style="transform: rotate(-90deg);">
+                <g id="pie-slices-${ctrl.id}"></g>
+                <circle cx="0" cy="0" r="35" fill="#ffffff"></circle> </svg>
+            <div class="pie-legend" id="pie-legend-${ctrl.id}"></div>`;
+        card.appendChild(layout);
+        return card;
+    }
+};
+
+// ==================== UI 动态渲染引擎 ====================
+const UIFactory = {
+    renderLiveUI(controls) {
+        Object.keys(mapInstances).forEach(id => {
+            try { 
+                if(mapInstances[id].map) mapInstances[id].map.remove(); 
+            } catch(e){}
+        });
+        mapInstances = {};
+        
+        // 清空容器，重建元数据结构
+        chartAndListMeta = {};
+        const panel = document.getElementById('dynamic-panel');
+        panel.innerHTML = "";
+        gaugeMeta = {};
+
+        document.getElementById('hint').textContent = `已激活 ${controls.length} 个组件`;
+
+        controls.forEach(ctrl => {
+            if (!ctrl.id || !CardFactory[ctrl.type]) return;
+            const card = CardFactory[ctrl.type](ctrl);
+            panel.appendChild(card);
+
+            if (ctrl.type === "gauge") {
+                gaugeMeta[ctrl.id] = {min: ctrl.min||0, max: ctrl.max||100};
+                this.updateGauge(ctrl.id, ctrl.value !== undefined ? ctrl.value : ctrl.min||0);
+            }
+            if (ctrl.type === "map") {
+                MapManager.init(ctrl);
+            }
+            // 初始化时如果有预置数据，直接驱动更新逻辑
+            if (ctrl.value !== undefined) {
+                this.updateLiveComponent(ctrl.id, ctrl.value);
+            }
+        });
+    },
+
+    updateLiveComponent(id, val) {
+        if (gaugeMeta[id]) return this.updateGauge(id, val);
+        if (mapInstances[id] && val && val.lat !== undefined) {
+            MapManager.updateMarker(id, val);
+            return;
+        }
+
+        // 🆕 处理动态列表的高频按需清空与完全动态生成
+        const listBox = document.getElementById("list-box-" + id);
+        if (listBox && Array.isArray(val)) {
+            chartAndListMeta[id] = val; // 记录本地状态提供给详情页调用
+            listBox.innerHTML = "";
+            val.forEach((item, index) => {
+                const row = document.createElement('div');
+                row.className = "list-row";
+                row.onclick = () => openDetailsSheet(id, index);
+                
+                const labelSpan = document.createElement('span');
+                labelSpan.textContent = item.label;
+                
+                const badgeSpan = document.createElement('span');
+                badgeSpan.className = "list-badge";
+                // 自动匹配二级子菜单高亮标签名
+                const activeMatch = item.sub_menu.find(m => m.val === item.current_val);
+                badgeSpan.textContent = activeMatch ? activeMatch.label : "未配置";
+                
+                row.appendChild(labelSpan);
+                row.appendChild(badgeSpan);
+                listBox.appendChild(row);
+            });
+            
+            // 如果用户此刻正好开着本 List 的详情菜单，联动进行 DOM 数据无缝刷新
+            if (document.getElementById('global-details-overlay').style.display === "flex" && activeListId === id) {
+                const curSheetTitle = document.getElementById('details-sheet-title').textContent;
+                const foundIdx = val.findIndex(item => item.label === curSheetTitle);
+                if(foundIdx !== -1) openDetailsSheet(id, foundIdx);
+            }
+            return;
+        }
+
+        // 🆕 处理折线图高频更新与计算绘制
+        const linePath = document.getElementById("line-path-" + id);
+        if (linePath && Array.isArray(val)) {
+            const labelsG = document.getElementById(`line-labels-${id}`);
+            const lineArea = document.getElementById(`line-area-${id}`);
+            if(!val.length) return;
+            
+            const maxVal = Math.max(...val.map(d => d.value), 10);
+            const stepX = 320 / (val.length > 1 ? val.length - 1 : 1);
+            
+            let pathD = "", labelsHTML = "";
+            val.forEach((d, i) => {
+                const cx = 40 + i * stepX;
+                const cy = 130 - (d.value / maxVal) * 110; // 映射在纵向 20-130px 区域内
+                pathD += (i === 0 ? "M " : " L ") + `${cx} ${cy}`;
+                
+                if (val.length <= 6 || i % Math.ceil(val.length/5) === 0 || i === val.length-1) {
+                    labelsHTML += `<text x="${cx}" y="148" class="chart-label">${d.label}</text>`;
+                }
+            });
+            
+            linePath.setAttribute("d", pathD);
+            if(lineArea) lineArea.setAttribute("d", `${pathD} L ${40 + (val.length-1)*stepX} 130 L 40 130 Z`);
+            if(labelsG) labelsG.innerHTML = labelsHTML + `<text x="35" y="24" class="chart-label" text-anchor="end">${parseInt(maxVal)}</text><text x="35" y="134" class="chart-label" text-anchor="end">0</text>`;
+            return;
+        }
+
+        // 🆕 处理柱状图高频更新与计算绘制
+        const barGroup = document.getElementById("bar-group-" + id);
+        if (barGroup && Array.isArray(val)) {
+            const labelsG = document.getElementById(`bar-labels-${id}`);
+            if(!val.length) return;
+            
+            const maxVal = Math.max(...val.map(d => d.value), 10);
+            const totalW = 320;
+            const barW = (totalW / val.length) * 0.6;
+            const gap = (totalW / val.length) * 0.4;
+            
+            let barsHTML = "", labelsHTML = "";
+            val.forEach((d, i) => {
+                const cx = 40 + (i * (barW + gap)) + gap/2;
+                const h = (d.value / maxVal) * 110;
+                const cy = 130 - h;
+                
+                barsHTML += `<rect x="${cx}" y="${cy}" width="${barW}" height="${h}" class="chart-bar"><title>${d.label}: ${d.value}</title></rect>`;
+                if (val.length <= 6 || i % Math.ceil(val.length/5) === 0) {
+                    labelsHTML += `<text x="${cx + barW/2}" y="148" class="chart-label">${d.label}</text>`;
+                }
+            });
+            
+            barGroup.innerHTML = barsHTML;
+            if(labelsG) labelsG.innerHTML = labelsHTML + `<text x="35" y="24" class="chart-label" text-anchor="end">${parseInt(maxVal)}</text><text x="35" y="134" class="chart-label" text-anchor="end">0</text>`;
+            return;
+        }
+
+        // 🆕 处理饼图（扇形）高频更新与计算绘制
+        const pieSlices = document.getElementById("pie-slices-" + id);
+        if (pieSlices && Array.isArray(val)) {
+            const legendBox = document.getElementById(`pie-legend-${id}`);
+            const total = val.reduce((sum, d) => sum + d.value, 0);
+            const colors = ["#03a9f4", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#64748b"];
+            
+            let slicesHTML = "", legendHTML = "", accumulatedAngle = 0;
+            
+            val.forEach((d, i) => {
+                const color = colors[i % colors.length];
+                const percentage = total > 0 ? d.value / total : 0;
+                const angle = percentage * 360;
+                
+                // SVG 弧形画扇区核心算法
+                const r = 60;
+                const x1 = r * Math.cos((accumulatedAngle) * PI / 180);
+                const y1 = r * Math.sin((accumulatedAngle) * PI / 180);
+                const x2 = r * Math.cos((accumulatedAngle + angle) * PI / 180);
+                const y2 = r * Math.sin((accumulatedAngle + angle) * PI / 180);
+                const largeArcFlag = angle > 180 ? 1 : 0;
+                
+                if (angle > 0) {
+                    if (angle >= 359.9) { // 规避单数据画圆 0 判定导致消失的经典边界
+                        slicesHTML += `<circle cx="0" cy="0" r="${r}" fill="${color}" />`;
+                    } else {
+                        slicesHTML += `<path d="M 0 0 L ${x1} ${y1} A ${r} ${r} 0 ${largeArcFlag} 1 ${x2} ${y2} Z" fill="${color}" />`;
+                    }
+                }
+                
+                accumulatedAngle += angle;
+                
+                legendHTML += `
+                    <div class="legend-item">
+                        <div class="legend-color" style="background:${color}"></div>
+                        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${d.label}</span>
+                        <b style="color:var(--text-sub)">${(percentage*100).toFixed(0)}%</b>
+                    </div>`;
+            });
+            
+            pieSlices.innerHTML = slicesHTML;
+            if(legendBox) legendBox.innerHTML = legendHTML;
+            return;
+        }
+
+        // 原有原生组件的属性绑定更新管线
+        const el = document.getElementById("el-" + id);
+        if (!el) return;
+        if (el.type === "checkbox") el.checked = (val === "ON" || val === true || val === 1);
+        else if (el.type === "range" || el.type === "time") {
+            el.value = val;
+            const txt = document.getElementById("txt-" + id);
+            if (txt) txt.textContent = val;
+        }
+    },
+
+    updateGauge(id, val) {
+        const meta = gaugeMeta[id];
+        if (!meta) return;
+        let num = parseFloat(val);
+        if (isNaN(num)) return;
+        num = Math.max(meta.min, Math.min(meta.max, num));
+        
+        const percent = (meta.max - meta.min) > 0 ? (num - meta.min) / (meta.max - meta.min) : 1;
+        
+        const stroke = document.getElementById("svg-stroke-" + id);
+        const text = document.getElementById("svg-txt-" + id);
+        if (stroke) stroke.style.strokeDashoffset = 377 - (percent * 377);
+        if (text) text.textContent = num.toFixed(1);
+    }
+};
+
+// ==================== 工业看门狗与自愈 ====================
+function startWatchdog() {
+    setInterval(() => {
+        if (Date.now() - lastHeartbeat > 120000 && client && client.connected) {
+            Logger.log('warn', '心跳超时，主链路触发强自愈机制');
+            client.reconnect();
+        }
+    }, 25000);
+}
+
+// ==================== 初始化与交互入口 ====================
+window.onload = function() {
+    config = safeGetItem('live_dynamic_cfg');
+    if (config) {
+        const mqttMgr = new IndustrialMQTT();
+        mqttMgr.connect(config);
+        startWatchdog();
+        window.mqttMgr = mqttMgr; 
+    } else {
+        document.getElementById('config-overlay').style.display = 'block';
+    }
+};
+
+window.saveConfig = function() { 
+  const host = document.getElementById('cfg-host').value.trim() || document.getElementById('cfg-host').placeholder;
+    const port = parseInt(document.getElementById('cfg-port').value) || parseInt(document.getElementById('cfg-port').placeholder);
+    const user = document.getElementById('cfg-user').value.trim() || document.getElementById('cfg-user').placeholder;
+    const pass = document.getElementById('cfg-pass').value || document.getElementById('cfg-pass').placeholder;
+    const subTopic = document.getElementById('cfg-sub-topic').value.trim() || document.getElementById('cfg-sub-topic').placeholder;
+    const pubTopic = document.getElementById('cfg-pub-topic').value.trim() || document.getElementById('cfg-pub-topic').placeholder;
+    if (!host || !port || !subTopic || !pubTopic) {
+        showToast("❌ 通道参数不可为空！"); return;
+    }
+
+    config = {
+        host: host, port: parseInt(port, 10),
+        user: document.getElementById('cfg-user').value.trim(),
+        pass: document.getElementById('cfg-pass').value.trim(),
+        subTopic: subTopic, pubTopic: pubTopic
+    };
+    safeSetItem('live_dynamic_cfg', config);
+    location.reload();
+};
+
+window.sendUiAction = function(id, value) {
+    if (window.mqttMgr) window.mqttMgr.publish(id, value);
+};
+
+window.resetAll = function() {
+    localStorage.removeItem('live_dynamic_cfg');
+    localStorage.removeItem('iot_fixed_client_id');
+    location.reload();
+};
+</script>
+</body>
+</html>
