@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MWC + Mixed Gauges Dashboard</title>
+    <link rel="icon" href="https://fav.farm/🌐">
+    
+    <link rel="stylesheet" href="https://fonts.font.im/icon?family=Material+Icons">
+    <link rel="stylesheet" href="https://fonts.font.im/css?family=Roboto:300,400,500,700&display=swap">
+    <script src="https://lf26-cdn-tos.bytecdntp.com/cdn/expire-1-M/mqtt/4.2.6/mqtt.min.js"></script>
+    
+    <script type="module" src="https://unpkg.com/@material/mwc-button@0.27.0?module"></script>
+    <script type="module" src="https://unpkg.com/@material/mwc-linear-progress@0.27.0?module"></script>
+    <script type="module" src="https://unpkg.com/@material/mwc-textfield@0.27.0?module"></script>
+    <script type="module" src="https://unpkg.com/@material/mwc-icon@0.27.0?module"></script>
+
+    <script src="https://unpkg.com/canvas-gauges@2.1.7/gauge.min.js"></script>
+
+    <style>
+        :root {
+            --mdc-theme-primary: #03a9f4;
+            --mdc-theme-secondary: #03a9f4;
+            --mdc-theme-surface: #ffffff;
+            --mdc-theme-background: #f5f7fa;
+            --mdc-theme-text-primary-on-background: #212121;
+            --mdc-theme-text-secondary-on-background: #727272;
+            --mdc-shape-medium: 12px;
+            --mdc-shape-small: 4px;
+            
+            --warning-color: #ff9800;
+            --danger-color: #f44336;
+        }
+
+        body {
+            font-family: Roboto, -apple-system, sans-serif;
+            background: var(--mdc-theme-background);
+            margin: 0;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: var(--mdc-theme-text-primary-on-background);
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        #status-bar {
+            font-size: 13px;
+            color: var(--mdc-theme-text-secondary-on-background);
+            margin-bottom: 12px;
+            width: 100%;
+            max-width: 450px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 4px;
+            box-sizing: border-box;
+        }
+        .online-tag { color: #4caf50; font-weight: 500; }
+
+        .mwc-card {
+            background: var(--mdc-theme-surface);
+            border-radius: var(--mdc-shape-medium);
+            border: 1px solid #e0e0e0;
+            box-shadow: 0px 2px 1px -1px rgba(0,0,0,0.05), 0px 1px 1px 0px rgba(0,0,0,0.03), 0px 1px 3px 0px rgba(0,0,0,0.05);
+            padding: 24px 20px;
+            width: 100%;
+            max-width: 450px;
+            margin-bottom: 16px;
+            box-sizing: border-box;
+        }
+
+        .card-header {
+            margin-top: 0;
+            font-size: 16px;
+            font-weight: 500;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            opacity: 0.9;
+        }
+        .card-header mwc-icon { color: var(--mdc-theme-primary); }
+
+        /* ---------------------------------------------------------------- */
+        /* 核心：核心边界隔离线样式 (Lovelace 经典技术规范) */
+        .boundary-divider {
+            display: flex;
+            align-items: center;
+            width: 100%;
+            max-width: 450px;
+            margin: 24px 0;
+            color: var(--mdc-theme-text-secondary-on-background);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+        }
+        .boundary-divider::before, .boundary-divider::after {
+            content: '';
+            flex: 1;
+            border-bottom: 2px dashed #cfd8dc;
+        }
+        .boundary-divider::before { margin-right: 12px; }
+        .boundary-divider::after { margin-left: 12px; }
+        /* ---------------------------------------------------------------- */
+
+        /* 布局网格 */
+        .dashboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .meter-box { 
+            text-align: center; 
+            background: #fafafa; 
+            padding: 16px 12px; 
+            border-radius: var(--mdc-shape-medium); 
+            border: 1px solid #f0f0f0; 
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .meter-title { font-size: 12px; color: var(--mdc-theme-text-secondary-on-background); margin-bottom: 6px; width: 100%; }
+        .meter-val { font-size: 28px; font-weight: 500; margin-bottom: 12px; }
+        
+        mwc-linear-progress { 
+            width: 100%; 
+            --mdc-linear-progress-buffer-color: #eeeeee;
+            height: 6px;
+            border-radius: 3px;
+        }
+
+        .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+
+        .input-group { display: flex; gap: 8px; width: 100%; align-items: stretch; }
+        .input-group mwc-textfield { flex: 1; }
+        .input-group mwc-button { height: 56px; }
+
+        .file-box { border: 2px dashed #b0bec5; padding: 24px 16px; border-radius: var(--mdc-shape-medium); text-align: center; cursor: pointer; margin-bottom: 12px; background: #fafafa; }
+        #recv-box { display: none; margin-top: 12px; padding: 16px; background: rgba(3, 169, 244, 0.05); border-radius: var(--mdc-shape-medium); border: 1px solid rgba(3, 169, 244, 0.15); }
+        #img-preview { max-width: 100%; margin-top: 12px; border-radius: 6px; display: none; }
+
+        /* 配置遮罩 */
+        #config-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--mdc-theme-background); z-index: 100; padding: 32px 24px; box-sizing: border-box; display: none; overflow-y: auto; }
+        .config-title { font-size: 22px; font-weight: 500; margin-bottom: 24px; text-align: center; }
+        .form-group { margin-bottom: 16px; }
+        .form-group mwc-textfield { width: 100%; }
+    </style>
+</head>
+<body>
+
+    <div id="status-bar">
+        <span>连接状态: <span id="mqtt-stat">未连接</span></span>
+        <span id="topic-hint" style="font-size: 11px;"></span>
+    </div>
+
+    <div class="mwc-card">
+        <div class="card-header"><mwc-icon>settings_remote</mwc-icon>远程指令 & 文本 (原生 MWC组件)</div>
+        <div class="btn-grid">
+            <mwc-button raised icon="power_settings_new" label="设备1 开启" onclick="sendCmd('item1', 'ON')"></mwc-button>
+            <mwc-button raised icon="power_settings_new" label="设备2 开启" onclick="sendCmd('item2', 'ON')"></mwc-button>
+        </div>
+        <mwc-button outlined icon="restart_alt" label="系统复位" style="width:100%; margin-bottom:16px; --mdc-theme-primary: var(--danger-color);" onclick="sendCmd('reset', 'NOW')"></mwc-button>
+        
+        <div class="input-group">
+            <mwc-textfield id="text-input" outlined label="输入控制文本" placeholder="输入控制文本..."></mwc-textfield>
+            <mwc-button raised icon="send" label="发送" onclick="sendText()"></mwc-button>
+        </div>
+    </div>
+
+    <div class="mwc-card">
+        <div class="card-header"><mwc-icon>cloud_upload</mwc-icon>文件传输 (原生 MWC组件)</div>
+        <div class="file-box" onclick="document.getElementById('file-input').click()">
+            <mwc-icon style="font-size: 38px; color: #90a4ae;">upload_file</mwc-icon>
+            <div style="font-size: 13px; color:#546e7a; margin-top: 6px;">点击选择文件</div>
+            <input type="file" id="file-input" style="display:none" onchange="handleFile(this)">
+            <div id="file-info" style="font-size: 12px; margin-top:6px; color: var(--mdc-theme-primary); font-weight: 500;"></div>
+        </div>
+        <mwc-button id="btn-file-send" raised icon="send" label="发送文件到 IoT" style="width:100%; --mdc-theme-primary: var(--warning-color); display:none;" onclick="sendFile()"></mwc-button>
+        
+        <div id="recv-box">
+            <div style="display:flex; align-items:center; gap:6px; font-weight:500; color:var(--mdc-theme-primary); font-size:14px; margin-bottom:4px;">
+                <mwc-icon>download_for_offline</mwc-icon> 收到新文件:
+            </div>
+            <div id="recv-name" style="margin-bottom: 12px; color:#555; font-size:13px; padding-left:4px;"></div>
+            <mwc-button id="dl-link" outlined icon="file_download" label="点击下载 / 保存" style="width:100%; --mdc-theme-surface: #fff;"></mwc-button>
+            <img id="img-preview">
+        </div>
+    </div>
+
+    <div class="mwc-card">
+        <div class="card-header"><mwc-icon>horizontal_rule</mwc-icon>线性数据 (原生 MWC组件)</div>
+        <div class="dashboard-grid">
+            <div class="meter-box">
+                <div class="meter-title">数据 1 (线性)</div>
+                <div id="val1-linear" class="meter-val">0</div>
+                <mwc-linear-progress id="progress1" progress="0"></mwc-linear-progress>
+            </div>
+            <div class="meter-box">
+                <div class="meter-title">数据 2 (线性)</div>
+                <div id="val2-linear" class="meter-val">0</div>
+                <mwc-linear-progress id="progress2" progress="0"></mwc-linear-progress>
+            </div>
+        </div>
+    </div>
+
+
+    <div class="boundary-divider">下方为开源魔改高级可视化区</div>
+
+
+    <div class="mwc-card" style="border-color: #b3e5fc; background: #fcfeff;">
+        <div class="card-header" style="color: #0288d1;"><mwc-icon style="color: #0288d1;">donut_large</mwc-icon>环形仪表盘 (Lovelace 级魔改组件)</div>
+        <div class="dashboard-grid">
+            
+            <div class="meter-box" style="background:#fff;">
+                <div class="meter-title" style="margin-bottom:10px;">传感器设备 1</div>
+                <radial-gauge 
+                    id="gauge1" width="140" height="140" value="0" units="单位"
+                    min-value="0" max-value="100" title="IoT-1"
+                    major-ticks="0,20,40,60,80,100" stroke-ticks="true"
+                    color-plate="transparent" border-shadow-width="0" borders="false"
+                    needle-type="arrow" needle-width="3" needle-circle-size="7"
+                    color-needle-circle-outer="#03a9f4" color-needle-circle-inner="#fff" color-needle="#03a9f4"
+                    color-title="#727272" color-units="#999" font-value-size="35"
+                    animation-duration="800" animation-rule="decelerate"
+                    highlights='[ {"from": 0, "to": 60, "color": "rgba(76,175,80,.15)"}, {"from": 60, "to": 80, "color": "rgba(255,152,0,.15)"}, {"from": 80, "to": 100, "color": "rgba(244,67,54,.15)"} ]'
+                ></radial-gauge>
+            </div>
+            
+            <div class="meter-box" style="background:#fff;">
+                <div class="meter-title" style="margin-bottom:10px;">传感器设备 2</div>
+                <radial-gauge 
+                    id="gauge2" width="140" height="140" value="0" units="单位"
+                    min-value="0" max-value="100" title="IoT-2"
+                    major-ticks="0,20,40,60,80,100" stroke-ticks="true"
+                    color-plate="transparent" border-shadow-width="0" borders="false"
+                    needle-type="arrow" needle-width="3" needle-circle-size="7"
+                    color-needle-circle-outer="#03a9f4" color-needle-circle-inner="#fff" color-needle="#03a9f4"
+                    color-title="#727272" color-units="#999" font-value-size="35"
+                    animation-duration="800" animation-rule="decelerate"
+                    highlights='[ {"from": 0, "to": 60, "color": "rgba(76,175,80,.15)"}, {"from": 60, "to": 80, "color": "rgba(255,152,0,.15)"}, {"from": 80, "to": 100, "color": "rgba(244,67,54,.15)"} ]'
+                ></radial-gauge>
+            </div>
+
+        </div>
+    </div>
+
+    <mwc-button dense label="重置连接参数" style="--mdc-theme-primary: #bbb;" onclick="localStorage.removeItem('mqtt_iot_cfg'); location.reload();"></mwc-button>
+
+    <div id="config-overlay">
+        <div class="config-title">browserMQTT 配置</div>
+        <div class="form-group"><mwc-textfield id="cfg-host" outlined label="Broker Host (不带 wss://)" placeholder="xxx.s1.eu.hivemq.cloud"></mwc-textfield></div>
+        <div class="form-group"><mwc-textfield id="cfg-port" outlined label="Port" type="number" value="8884"></mwc-textfield></div>
+        <div class="form-group"><mwc-textfield id="cfg-user" outlined label="Username"></mwc-textfield></div>
+        <div class="form-group"><mwc-textfield id="cfg-pass" outlined label="Password" type="password"></mwc-textfield></div>
+        <div class="form-group"><mwc-textfield id="cfg-topic" outlined label="Base Topic" placeholder="home/esp32"></mwc-textfield></div>
+        <mwc-button raised label="保存并连接" icon="login" style="width:100%; height:48px; margin-top:8px;" onclick="saveConfig()"></mwc-button>
+    </div>
+
+<script>
+    let client = null; let config = null; let fBase64 = null; let fName = null;
+
+    function getTopic(suffix) {
+        if(!config || !config.topic) return "";
+        return config.topic.replace(/\/+$/, "") + "/" + suffix;
+    }
+
+    window.onload = () => {
+        const saved = localStorage.getItem('mqtt_iot_cfg');
+        if (saved) { config = JSON.parse(saved); connectMQTT(); } 
+        else { document.getElementById('config-overlay').style.display = 'block'; }
+    };
+
+    function saveConfig() {
+        config = {
+            host: document.getElementById('cfg-host').value.trim(),
+            port: document.getElementById('cfg-port').value.trim(),
+            user: document.getElementById('cfg-user').value.trim(),
+            pass: document.getElementById('cfg-pass').value.trim(),
+            topic: document.getElementById('cfg-topic').value.trim()
+        };
+        localStorage.setItem('mqtt_iot_cfg', JSON.stringify(config));
+        location.reload();
+    }
+
+    function connectMQTT() {
+        const statEl = document.getElementById('mqtt-stat');
+        statEl.innerText = "正在握手...";
+        client = mqtt.connect(`wss://${config.host}:${config.port}/mqtt`, {
+            username: config.user, password: config.pass,
+            clientId: 'bmqtt_' + Math.random().toString(16).slice(2,8)
+        });
+
+        client.on('connect', () => {
+            statEl.innerText = "在线"; statEl.className = "online-tag";
+            const sub = getTopic("iot2wss"); client.subscribe(sub);
+            document.getElementById('topic-hint').innerText = "监听: " + sub;
+        });
+
+        client.on('message', (topic, payload) => {
+            const msg = payload.toString().trim();
+            if (msg.startsWith('{') && msg.includes('"file":')) {
+                try { displayFile(JSON.parse(msg)); } catch(e) {}
+            } else {
+                try {
+                    const data = JSON.parse(msg);
+                    if(data.val1 !== undefined) updateDynamicUI('progress1', 'val1-linear', 'gauge1', data.val1);
+                    if(data.val2 !== undefined) updateDynamicUI('progress2', 'val2-linear', 'gauge2', data.val2);
+                } catch(e) {
+                    const n = parseFloat(msg); if(!isNaN(n)) updateDynamicUI('progress1', 'val1-linear', 'gauge1', n);
+                }
+            }
+        });
+    }
+
+    function handleFile(input) {
+        const file = input.files[0]; if(!file) return;
+        if(file.size > 1024 * 700) return alert("文件过大 (限制 700KB)");
+        fName = file.name;
+        document.getElementById('file-info').innerText = fName + " (" + (file.size/1024).toFixed(1) + "KB)";
+        const reader = new FileReader();
+        reader.onload = (e) => { fBase64 = e.target.result; document.getElementById('btn-file-send').style.display = 'block'; };
+        reader.readAsDataURL(file);
+    }
+
+    function sendFile() {
+        if(!client || !client.connected) return;
+        const payload = JSON.stringify({ file: fBase64, name: fName, ts: Date.now() });
+        client.publish(getTopic("wss2iot"), payload);
+        alert("文件已编码并发送");
+        document.getElementById('btn-file-send').style.display = 'none';
+    }
+
+    function displayFile(data) {
+        document.getElementById('recv-box').style.display = 'block';
+        document.getElementById('recv-name').innerText = data.name;
+        document.getElementById('dl-link').onclick = () => {
+            const a = document.createElement('a'); a.href = data.file; a.download = data.name; a.click();
+        };
+        const pre = document.getElementById('img-preview');
+        if(data.file.startsWith('data:image')) { pre.src = data.file; pre.style.display = 'block'; }
+        else { pre.style.display = 'none'; }
+    }
+
+    function sendCmd(item, cmd) {
+        if(!client || !client.connected) return;
+        client.publish(getTopic("wss2iot"), JSON.stringify({ item, cmd, ts: Date.now() }));
+    }
+
+    function sendText() {
+        const input = document.getElementById('text-input');
+        if(!client || !client.connected || !input.value) return;
+        client.publish(getTopic("wss2iot"), input.value);
+        input.value = '';
+    }
+
+    // 统一的数据分流控制函数：一条 MQTT 数据流入，同时驱动【原生 MWC 线性条】与【开源魔改环形表】
+    function updateDynamicUI(mwcProgressBarId, mwcTextId, openSourceGaugeId, value) {
+        const boundVal = Math.min(Math.max(value, 0), 100);
+        const finalNum = Math.round(boundVal);
+        
+        // 1. 驱动上半区：Google MWC 原生标签组件
+        document.getElementById(mwcTextId).innerText = finalNum;
+        document.getElementById(mwcProgressBarId).progress = boundVal / 100;
+        
+        // 2. 驱动下半区：开源魔改的仪表盘标签属性（自带极其平滑的物理惯性减速过渡动效）
+        document.getElementById(openSourceGaugeId).setAttribute('value', boundVal);
+    }
+</script>
+</body>
+</html>
