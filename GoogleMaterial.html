@@ -3,367 +3,259 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MWC + Mixed Gauges Dashboard</title>
-    <link rel="icon" href="https://fav.farm/🌐">
+    <meta name="referrer" content="no-referrer">
+    <title>Pure Unified Live UI - 高德自动纠偏一体化大屏</title>
+    <link rel="icon" href="https://fav.farm/🎛️">
     
-    <link rel="stylesheet" href="https://fonts.font.im/icon?family=Material+Icons">
-    <link rel="stylesheet" href="https://fonts.font.im/css?family=Roboto:300,400,500,700&display=swap">
-    <script src="https://lf26-cdn-tos.bytecdntp.com/cdn/expire-1-M/mqtt/4.2.6/mqtt.min.js"></script>
-    
-    <script type="module" src="https://unpkg.com/@material/mwc-button@0.27.0?module"></script>
-    <script type="module" src="https://unpkg.com/@material/mwc-linear-progress@0.27.0?module"></script>
-    <script type="module" src="https://unpkg.com/@material/mwc-textfield@0.27.0?module"></script>
-    <script type="module" src="https://unpkg.com/@material/mwc-icon@0.27.0?module"></script>
-
-    <script src="https://unpkg.com/canvas-gauges@2.1.7/gauge.min.js"></script>
+    <script src="mqtt.min.js"></script>
+    <link rel="stylesheet" href="leaflet.css" />
+    <script src="leaflet.js"></script>
 
     <style>
         :root {
-            --mdc-theme-primary: #03a9f4;
-            --mdc-theme-secondary: #03a9f4;
-            --mdc-theme-surface: #ffffff;
-            --mdc-theme-background: #f5f7fa;
-            --mdc-theme-text-primary-on-background: #212121;
-            --mdc-theme-text-secondary-on-background: #727272;
-            --mdc-shape-medium: 12px;
-            --mdc-shape-small: 4px;
-            
-            --warning-color: #ff9800;
-            --danger-color: #f44336;
+            --primary: #03a9f4;
+            --primary-bg: rgba(3, 169, 244, 0.08);
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #1e293b;
+            --text-sub: #64748b;
+            --border-color: #e2e8f0;
+            --radius: 16px;
         }
-
-        body {
-            font-family: Roboto, -apple-system, sans-serif;
-            background: var(--mdc-theme-background);
-            margin: 0;
-            padding: 16px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            color: var(--mdc-theme-text-primary-on-background);
-            -webkit-tap-highlight-color: transparent;
-        }
-
-        #status-bar {
-            font-size: 13px;
-            color: var(--mdc-theme-text-secondary-on-background);
-            margin-bottom: 12px;
-            width: 100%;
-            max-width: 450px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0 4px;
-            box-sizing: border-box;
-        }
-        .online-tag { color: #4caf50; font-weight: 500; }
-
-        .mwc-card {
-            background: var(--mdc-theme-surface);
-            border-radius: var(--mdc-shape-medium);
-            border: 1px solid #e0e0e0;
-            box-shadow: 0px 2px 1px -1px rgba(0,0,0,0.05), 0px 1px 1px 0px rgba(0,0,0,0.03), 0px 1px 3px 0px rgba(0,0,0,0.05);
-            padding: 24px 20px;
-            width: 100%;
-            max-width: 450px;
-            margin-bottom: 16px;
-            box-sizing: border-box;
-        }
-
-        .card-header {
-            margin-top: 0;
-            font-size: 16px;
-            font-weight: 500;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            opacity: 0.9;
-        }
-        .card-header mwc-icon { color: var(--mdc-theme-primary); }
-
-        /* ---------------------------------------------------------------- */
-        /* 核心：核心边界隔离线样式 (Lovelace 经典技术规范) */
-        .boundary-divider {
-            display: flex;
-            align-items: center;
-            width: 100%;
-            max-width: 450px;
-            margin: 24px 0;
-            color: var(--mdc-theme-text-secondary-on-background);
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 1.5px;
-            text-transform: uppercase;
-        }
-        .boundary-divider::before, .boundary-divider::after {
-            content: '';
-            flex: 1;
-            border-bottom: 2px dashed #cfd8dc;
-        }
-        .boundary-divider::before { margin-right: 12px; }
-        .boundary-divider::after { margin-left: 12px; }
-        /* ---------------------------------------------------------------- */
-
-        /* 布局网格 */
-        .dashboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-        .meter-box { 
-            text-align: center; 
-            background: #fafafa; 
-            padding: 16px 12px; 
-            border-radius: var(--mdc-shape-medium); 
-            border: 1px solid #f0f0f0; 
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }
-        .meter-title { font-size: 12px; color: var(--mdc-theme-text-secondary-on-background); margin-bottom: 6px; width: 100%; }
-        .meter-val { font-size: 28px; font-weight: 500; margin-bottom: 12px; }
-        
-        mwc-linear-progress { 
-            width: 100%; 
-            --mdc-linear-progress-buffer-color: #eeeeee;
-            height: 6px;
-            border-radius: 3px;
-        }
-
-        .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
-
-        .input-group { display: flex; gap: 8px; width: 100%; align-items: stretch; }
-        .input-group mwc-textfield { flex: 1; }
-        .input-group mwc-button { height: 56px; }
-
-        .file-box { border: 2px dashed #b0bec5; padding: 24px 16px; border-radius: var(--mdc-shape-medium); text-align: center; cursor: pointer; margin-bottom: 12px; background: #fafafa; }
-        #recv-box { display: none; margin-top: 12px; padding: 16px; background: rgba(3, 169, 244, 0.05); border-radius: var(--mdc-shape-medium); border: 1px solid rgba(3, 169, 244, 0.15); }
-        #img-preview { max-width: 100%; margin-top: 12px; border-radius: 6px; display: none; }
-
-        /* 配置遮罩 */
-        #config-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--mdc-theme-background); z-index: 100; padding: 32px 24px; box-sizing: border-box; display: none; overflow-y: auto; }
-        .config-title { font-size: 22px; font-weight: 500; margin-bottom: 24px; text-align: center; }
-        .form-group { margin-bottom: 16px; }
-        .form-group mwc-textfield { width: 100%; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg-color); margin: 0; padding: 24px 16px; display: flex; flex-direction: column; align-items: center; color: var(--text-main); -webkit-tap-highlight-color: transparent; }
+        #status-bar { font-size: 13px; color: var(--text-sub); margin-bottom: 16px; width: 100%; max-width: 420px; display: flex; justify-content: space-between; background: var(--card-bg); padding: 14px 16px; border-radius: var(--radius); border: 1px solid var(--border-color); box-shadow: 0 1px 2px rgba(0,0,0,0.02); box-sizing: border-box; }
+        .online-tag { color: #10b981; font-weight: bold; }
+        #dynamic-panel { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 16px; }
+        .dynamic-card { background: var(--card-bg); border-radius: var(--radius); border: 1px solid var(--border-color); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02), 0 2px 4px -1px rgba(0,0,0,0.01); padding: 24px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px; }
+        .card-title { font-size: 15px; font-weight: 600; color: var(--text-main); display: flex; justify-content: space-between; align-items: center; }
+        .iot-switch { position: relative; display: inline-block; width: 50px; height: 26px; }
+        .iot-switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .3s cubic-bezier(0.4, 0, 0.2, 1); border-radius: 26px; }
+        .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px; background-color: white; transition: .3s cubic-bezier(0.4, 0, 0.2, 1); border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .iot-switch input:checked + .slider { background-color: var(--primary); }
+        .iot-switch input:checked + .slider:before { transform: translateX(24px); }
+        .iot-slider { -webkit-appearance: none; width: 100%; height: 6px; background: #e2e8f0; border-radius: 99px; outline: none; margin: 8px 0; }
+        .iot-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; border-radius: 50%; background: var(--primary); cursor: pointer; box-shadow: 0 2px 4px rgba(3, 169, 244, 0.25); transition: transform 0.1s; }
+        .iot-slider::-webkit-slider-thumb:hover { transform: scale(1.15); }
+        .gauge-container { display: flex; justify-content: center; align-items: center; position: relative; width: 100%; height: 140px; }
+        .gauge-svg { transform: rotate(-90deg); width: 140px; height: 140px; }
+        .gauge-bg-track { fill: none; stroke: #e2e8f0; stroke-width: 10; stroke-linecap: round; }
+        .gauge-progress { fill: none; stroke: var(--primary); stroke-width: 12; stroke-linecap: round; stroke-dasharray: 377; stroke-dashoffset: 377; transition: stroke-dashoffset 0.45s cubic-bezier(0.4, 0, 0.2, 1); }
+        .gauge-center-text { position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .gauge-value { font-size: 28px; font-weight: 700; color: var(--text-main); line-height: 1; }
+        .gauge-unit { font-size: 11px; color: var(--text-sub); margin-top: 5px; letter-spacing: 0.5px; }
+        .time-picker-wrapper { display: flex; gap: 10px; width: 100%; align-items: center; }
+        .iot-time-picker { -webkit-appearance: none; -moz-appearance: none; appearance: none; background: #f1f5f9; border: 1px solid var(--border-color); border-radius: 10px; padding: 10px; font-size: 16px; font-weight: 700; color: var(--text-main); font-family: inherit; flex: 1; text-align: center; outline: none; cursor: pointer; height: 42px; box-sizing: border-box; }
+        .iot-time-picker:focus { background: #ffffff; border-color: var(--primary); }
+        .time-submit-btn { background: var(--primary); color: white; border: none; border-radius: 10px; padding: 0 16px; font-size: 13px; font-weight: 600; cursor: pointer; height: 42px; display: flex; align-items: center; justify-content: center; transition: all 0.1s; }
+        .time-submit-btn:active { transform: scale(0.96); }
+        .iot-map-canvas { width: 100%; height: 220px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border-color); z-index: 1; background: #f1f5f9; }
+        #config-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg-color); z-index: 100; padding: 32px 24px; box-sizing: border-box; display: none; overflow-y: auto; }
+        .form-group { margin-bottom: 14px; display: flex; flex-direction: column; gap: 4px; }
+        .form-group label { font-size: 13px; color: var(--text-sub); font-weight: 500; }
+        .native-input { border: 1px solid var(--border-color); border-radius: 10px; padding: 10px 14px; font-size: 14px; outline: none; background: #fff; height: 42px; box-sizing: border-box; }
+        .native-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-bg); }
+        .native-btn { background: var(--primary); color: #fff; border: none; padding: 12px; border-radius: 10px; font-size: 15px; cursor: pointer; font-weight: bold; transition: opacity 0.2s; }
+        .native-btn:active { opacity: 0.85; }
     </style>
 </head>
 <body>
 
     <div id="status-bar">
-        <span>连接状态: <span id="mqtt-stat">未连接</span></span>
-        <span id="topic-hint" style="font-size: 11px;"></span>
+        <span>网络通道: <span id="mqtt-stat">未连接</span></span>
+        <span id="hint" style="color:var(--primary);">等待下发UI清单...</span>
     </div>
 
-    <div class="mwc-card">
-        <div class="card-header"><mwc-icon>settings_remote</mwc-icon>远程指令 & 文本 (原生 MWC组件)</div>
-        <div class="btn-grid">
-            <mwc-button raised icon="power_settings_new" label="设备1 开启" onclick="sendCmd('item1', 'ON')"></mwc-button>
-            <mwc-button raised icon="power_settings_new" label="设备2 开启" onclick="sendCmd('item2', 'ON')"></mwc-button>
-        </div>
-        <mwc-button outlined icon="restart_alt" label="系统复位" style="width:100%; margin-bottom:16px; --mdc-theme-primary: var(--danger-color);" onclick="sendCmd('reset', 'NOW')"></mwc-button>
-        
-        <div class="input-group">
-            <mwc-textfield id="text-input" outlined label="输入控制文本" placeholder="输入控制文本..."></mwc-textfield>
-            <mwc-button raised icon="send" label="发送" onclick="sendText()"></mwc-button>
-        </div>
+    <div id="dynamic-panel"></div>
+    
+    <div style="margin-top: 36px; text-align: center;">
+        <button class="native-btn" style="background:#64748b; font-size:11px; padding:6px 12px;" onclick="localStorage.removeItem('live_dynamic_cfg'); location.reload();">重置连接配置</button>
     </div>
-
-    <div class="mwc-card">
-        <div class="card-header"><mwc-icon>cloud_upload</mwc-icon>文件传输 (原生 MWC组件)</div>
-        <div class="file-box" onclick="document.getElementById('file-input').click()">
-            <mwc-icon style="font-size: 38px; color: #90a4ae;">upload_file</mwc-icon>
-            <div style="font-size: 13px; color:#546e7a; margin-top: 6px;">点击选择文件</div>
-            <input type="file" id="file-input" style="display:none" onchange="handleFile(this)">
-            <div id="file-info" style="font-size: 12px; margin-top:6px; color: var(--mdc-theme-primary); font-weight: 500;"></div>
-        </div>
-        <mwc-button id="btn-file-send" raised icon="send" label="发送文件到 IoT" style="width:100%; --mdc-theme-primary: var(--warning-color); display:none;" onclick="sendFile()"></mwc-button>
-        
-        <div id="recv-box">
-            <div style="display:flex; align-items:center; gap:6px; font-weight:500; color:var(--mdc-theme-primary); font-size:14px; margin-bottom:4px;">
-                <mwc-icon>download_for_offline</mwc-icon> 收到新文件:
-            </div>
-            <div id="recv-name" style="margin-bottom: 12px; color:#555; font-size:13px; padding-left:4px;"></div>
-            <mwc-button id="dl-link" outlined icon="file_download" label="点击下载 / 保存" style="width:100%; --mdc-theme-surface: #fff;"></mwc-button>
-            <img id="img-preview">
-        </div>
-    </div>
-
-    <div class="mwc-card">
-        <div class="card-header"><mwc-icon>horizontal_rule</mwc-icon>线性数据 (原生 MWC组件)</div>
-        <div class="dashboard-grid">
-            <div class="meter-box">
-                <div class="meter-title">数据 1 (线性)</div>
-                <div id="val1-linear" class="meter-val">0</div>
-                <mwc-linear-progress id="progress1" progress="0"></mwc-linear-progress>
-            </div>
-            <div class="meter-box">
-                <div class="meter-title">数据 2 (线性)</div>
-                <div id="val2-linear" class="meter-val">0</div>
-                <mwc-linear-progress id="progress2" progress="0"></mwc-linear-progress>
-            </div>
-        </div>
-    </div>
-
-
-    <div class="boundary-divider">下方为开源魔改高级可视化区</div>
-
-
-    <div class="mwc-card" style="border-color: #b3e5fc; background: #fcfeff;">
-        <div class="card-header" style="color: #0288d1;"><mwc-icon style="color: #0288d1;">donut_large</mwc-icon>环形仪表盘 (Lovelace 级魔改组件)</div>
-        <div class="dashboard-grid">
-            
-            <div class="meter-box" style="background:#fff;">
-                <div class="meter-title" style="margin-bottom:10px;">传感器设备 1</div>
-                <radial-gauge 
-                    id="gauge1" width="140" height="140" value="0" units="单位"
-                    min-value="0" max-value="100" title="IoT-1"
-                    major-ticks="0,20,40,60,80,100" stroke-ticks="true"
-                    color-plate="transparent" border-shadow-width="0" borders="false"
-                    needle-type="arrow" needle-width="3" needle-circle-size="7"
-                    color-needle-circle-outer="#03a9f4" color-needle-circle-inner="#fff" color-needle="#03a9f4"
-                    color-title="#727272" color-units="#999" font-value-size="35"
-                    animation-duration="800" animation-rule="decelerate"
-                    highlights='[ {"from": 0, "to": 60, "color": "rgba(76,175,80,.15)"}, {"from": 60, "to": 80, "color": "rgba(255,152,0,.15)"}, {"from": 80, "to": 100, "color": "rgba(244,67,54,.15)"} ]'
-                ></radial-gauge>
-            </div>
-            
-            <div class="meter-box" style="background:#fff;">
-                <div class="meter-title" style="margin-bottom:10px;">传感器设备 2</div>
-                <radial-gauge 
-                    id="gauge2" width="140" height="140" value="0" units="单位"
-                    min-value="0" max-value="100" title="IoT-2"
-                    major-ticks="0,20,40,60,80,100" stroke-ticks="true"
-                    color-plate="transparent" border-shadow-width="0" borders="false"
-                    needle-type="arrow" needle-width="3" needle-circle-size="7"
-                    color-needle-circle-outer="#03a9f4" color-needle-circle-inner="#fff" color-needle="#03a9f4"
-                    color-title="#727272" color-units="#999" font-value-size="35"
-                    animation-duration="800" animation-rule="decelerate"
-                    highlights='[ {"from": 0, "to": 60, "color": "rgba(76,175,80,.15)"}, {"from": 60, "to": 80, "color": "rgba(255,152,0,.15)"}, {"from": 80, "to": 100, "color": "rgba(244,67,54,.15)"} ]'
-                ></radial-gauge>
-            </div>
-
-        </div>
-    </div>
-
-    <mwc-button dense label="重置连接参数" style="--mdc-theme-primary: #bbb;" onclick="localStorage.removeItem('mqtt_iot_cfg'); location.reload();"></mwc-button>
 
     <div id="config-overlay">
-        <div class="config-title">browserMQTT 配置</div>
-        <div class="form-group"><mwc-textfield id="cfg-host" outlined label="Broker Host (不带 wss://)" placeholder="xxx.s1.eu.hivemq.cloud"></mwc-textfield></div>
-        <div class="form-group"><mwc-textfield id="cfg-port" outlined label="Port" type="number" value="8884"></mwc-textfield></div>
-        <div class="form-group"><mwc-textfield id="cfg-user" outlined label="Username"></mwc-textfield></div>
-        <div class="form-group"><mwc-textfield id="cfg-pass" outlined label="Password" type="password"></mwc-textfield></div>
-        <div class="form-group"><mwc-textfield id="cfg-topic" outlined label="Base Topic" placeholder="home/esp32"></mwc-textfield></div>
-        <mwc-button raised label="保存并连接" icon="login" style="width:100%; height:48px; margin-top:8px;" onclick="saveConfig()"></mwc-button>
+        <h3 style="text-align:center; margin-top:0; font-weight:700;">WSS 统一视觉流配置面板</h3>
+        <div class="form-group"><label>Broker Host / IP</label><input type="text" id="cfg-host" class="native-input" placeholder="请输入服务器IP"></div>
+        <div class="form-group"><label>WebSocket Port</label><input type="number" id="cfg-port" class="native-input" value="8884"></div>
+        <div class="form-group"><label>Username</label><input type="text" id="cfg-user" class="native-input"></div>
+        <div class="form-group"><label>Password</label><input type="password" id="cfg-pass" class="native-input"></div>
+        <div class="form-group" style="border: 1px dashed #10b981; padding: 12px; border-radius: 8px; background:#f0fdf4; margin-top:10px;"><label style="color:#166534; font-weight:bold;">订阅 Topic</label><input type="text" id="cfg-sub-topic" class="native-input"></div>
+        <div class="form-group" style="border: 1px dashed #f59e0b; padding: 12px; border-radius: 8px; background:#fffbeb;"><label style="color:#9a3412; font-weight:bold;">发布 Topic</label><input type="text" id="cfg-pub-topic" class="native-input"></div>
+        <button class="native-btn" style="width:100%; margin-top:16px; height:46px;" onclick="saveConfig()">开启全要素一致性大屏</button>
     </div>
 
 <script>
-    let client = null; let config = null; let fBase64 = null; let fName = null;
+    let client = null; let config = null;
+    let gaugeMeta = {}; let mapInstances = {}; 
 
-    function getTopic(suffix) {
-        if(!config || !config.topic) return "";
-        return config.topic.replace(/\/+$/, "") + "/" + suffix;
+    // 📡 核心高精算法库：将硬件原始地球坐标 (WGS-84) 转换为国内高德/腾讯标准的火星坐标 (GCJ-02)
+    const PI = 3.1415926535897932384626;
+    const ee = 0.00669342162296594323;
+    const a = 6378245.0;
+
+    function wgs84ToGcj02(wgLat, wgLng) {
+        if (outOfChina(wgLat, wgLng)) return { lat: wgLat, lng: wgLng };
+        let dLat = transformLat(wgLng - 105.0, wgLat - 35.0);
+        let dLng = transformLng(wgLng - 105.0, wgLat - 35.0);
+        let radLat = wgLat / 180.0 * PI;
+        let magic = Math.sin(radLat);
+        magic = 1 - ee * magic * magic;
+        let sqrtMagic = Math.sqrt(magic);
+        dLat = (dLat * 180.0) / ((a * (1 - ee)) / (magic * sqrtMagic) * PI);
+        dLng = (dLng * 180.0) / (a / sqrtMagic * Math.cos(radLat) * PI);
+        return { lat: wgLat + dLat, lng: wgLng + dLng };
     }
 
-    window.onload = () => {
-        const saved = localStorage.getItem('mqtt_iot_cfg');
+    function outOfChina(lat, lng) {
+        if (lng < 72.004 || lng > 137.8347) return true;
+        if (lat < 0.8293 || lat > 55.8271) return true;
+        return false;
+    }
+
+    function transformLat(x, y) {
+        let ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+        ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
+        ret += (20.0 * Math.sin(y * PI) + 40.0 * Math.sin(y / 3.0 * PI)) * 2.0 / 3.0;
+        ret += (160.0 * Math.sin(y / 12.0 * PI) + 320 * Math.sin(y * PI / 30.0)) * 2.0 / 3.0;
+        return ret;
+    }
+
+    function transformLng(x, y) {
+        let ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+        ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
+        ret += (20.0 * Math.sin(x * PI) + 40.0 * Math.sin(x / 3.0 * PI)) * 2.0 / 3.0;
+        ret += (150.0 * Math.sin(x / 12.0 * PI) + 300.0 * Math.sin(x * PI / 30.0)) * 2.0 / 3.0;
+        return ret;
+    }
+
+    window.onload = function() {
+        const saved = localStorage.getItem('live_dynamic_cfg');
         if (saved) { config = JSON.parse(saved); connectMQTT(); } 
         else { document.getElementById('config-overlay').style.display = 'block'; }
     };
 
     function saveConfig() {
         config = {
-            host: document.getElementById('cfg-host').value.trim(),
-            port: document.getElementById('cfg-port').value.trim(),
-            user: document.getElementById('cfg-user').value.trim(),
-            pass: document.getElementById('cfg-pass').value.trim(),
-            topic: document.getElementById('cfg-topic').value.trim()
+            host: document.getElementById('cfg-host').value.trim(), port: document.getElementById('cfg-port').value.trim(),
+            user: document.getElementById('cfg-user').value.trim(), pass: document.getElementById('cfg-pass').value.trim(),
+            subTopic: document.getElementById('cfg-sub-topic').value.trim(), pubTopic: document.getElementById('cfg-pub-topic').value.trim()
         };
-        localStorage.setItem('mqtt_iot_cfg', JSON.stringify(config));
+        localStorage.setItem('live_dynamic_cfg', JSON.stringify(config));
         location.reload();
     }
 
     function connectMQTT() {
-        const statEl = document.getElementById('mqtt-stat');
-        statEl.innerText = "正在握手...";
-        client = mqtt.connect(`wss://${config.host}:${config.port}/mqtt`, {
-            username: config.user, password: config.pass,
-            clientId: 'bmqtt_' + Math.random().toString(16).slice(2,8)
-        });
+        const statEl = document.getElementById('mqtt-stat'); statEl.innerText = "接入物理流...";
+        let wsUrl = "wss://" + config.host + ":" + config.port;
+        if (!wsUrl.endsWith('/mqtt') && (config.host.includes('hivemq') || config.host.includes('emqx'))) { wsUrl += '/mqtt'; }
 
-        client.on('connect', () => {
-            statEl.innerText = "在线"; statEl.className = "online-tag";
-            const sub = getTopic("iot2wss"); client.subscribe(sub);
-            document.getElementById('topic-hint').innerText = "监听: " + sub;
-        });
+        client = mqtt.connect(wsUrl, { clientId: 'live_ui_' + Math.random().toString(16).slice(2,8), username: config.user || undefined, password: config.pass || undefined, keepalive: 60, clean: true, reconnectPeriod: 1500 });
+        if (client.stream) { attachPhysicalStream(client.stream); } else { client.on('connect', function() { if (client.stream) attachPhysicalStream(client.stream); }); }
+        client.on('connect', function() { statEl.innerText = "在线监听"; statEl.className = "online-tag"; client.subscribe(config.subTopic); });
+        client.on('error', function(err) { statEl.innerText = "通道受阻"; console.error(err); });
+        client.on('close', function() { statEl.innerText = "重连中..."; statEl.className = ""; });
+        client.on('message', function(topic, payload) { cleanAndProcessPayload(payload); });
+    }
 
-        client.on('message', (topic, payload) => {
-            const msg = payload.toString().trim();
-            if (msg.startsWith('{') && msg.includes('"file":')) {
-                try { displayFile(JSON.parse(msg)); } catch(e) {}
-            } else {
-                try {
-                    const data = JSON.parse(msg);
-                    if(data.val1 !== undefined) updateDynamicUI('progress1', 'val1-linear', 'gauge1', data.val1);
-                    if(data.val2 !== undefined) updateDynamicUI('progress2', 'val2-linear', 'gauge2', data.val2);
-                } catch(e) {
-                    const n = parseFloat(msg); if(!isNaN(n)) updateDynamicUI('progress1', 'val1-linear', 'gauge1', n);
-                }
+    function attachPhysicalStream(stream) { if (stream._dynamicAttached) return; stream._dynamicAttached = true; stream.on('data', function(chunk) { cleanAndProcessPayload(chunk); }); }
+
+    function cleanAndProcessPayload(payload) {
+        if (!payload) return;
+        try {
+            let pureJsonStr = "";
+            if (payload instanceof Uint8Array || Buffer.isBuffer(payload)) {
+                let start = -1; for (let i = 0; i < payload.length; i++) { if (payload[i] === 0x7B) { start = i; break; } }
+                if (start !== -1) { let end = -1; for (let i = payload.length - 1; i >= start; i--) { if (payload[i] === 0x7D) { end = i; break; } } if (end !== -1) { pureJsonStr = new TextDecoder("utf-8").decode(payload.slice(start, end + 1)); } }
+            }
+            if (!pureJsonStr) { let str = payload.toString().trim(); let s = str.indexOf('{'), e = str.lastIndexOf('}'); if (s !== -1 && e !== -1) pureJsonStr = str.slice(s, e + 1); }
+            pureJsonStr = pureJsonStr.trim(); if (!pureJsonStr.startsWith('{') || !pureJsonStr.endsWith('}')) return;
+            const data = JSON.parse(pureJsonStr);
+            if (data.type === "ui_setup") { renderLiveUI(data.controls); } else if (data.type === "ui_update") { updateLiveComponent(data.id, data.val); }
+        } catch (e) { console.error("解析异常:", e); }
+    }
+
+    function renderLiveUI(controls) {
+        const panel = document.getElementById('dynamic-panel'); panel.innerHTML = ""; gaugeMeta = {}; 
+        document.getElementById('hint').innerText = "已激活 " + controls.length + " 个一体化组件";
+
+        controls.forEach(function(ctrl) {
+            const card = document.createElement('div'); card.className = "dynamic-card"; card.id = "card-" + ctrl.id;
+            if (ctrl.type === "switch") { card.innerHTML = '<div class="card-title"><span>💡 ' + ctrl.title + '</span><label class="iot-switch"><input type="checkbox" id="el-' + ctrl.id + '" onchange="sendUiAction(\'' + ctrl.id + '\', this.checked ? \'ON\':\'OFF\')"><span class="slider"></span></label></div>'; } 
+            else if (ctrl.type === "slider") { let initMin = ctrl.min !== undefined ? ctrl.min : 0; let initVal = ctrl.value !== undefined ? ctrl.value : initMin; card.innerHTML = '<div class="card-title"><span>🎚️ ' + ctrl.title + '</span><span id="txt-' + ctrl.id + '" style="color:var(--primary); font-weight:700;">' + initVal + '</span></div><input type="range" id="el-' + ctrl.id + '" min="' + initMin + '" max="' + (ctrl.max || 100) + '" value="' + initVal + '" class="iot-slider" onchange="sendUiAction(\'' + ctrl.id + '\', this.value)" oninput="document.getElementById(\'txt-\' + \'' + ctrl.id + '\').innerText=this.value">'; } 
+            else if (ctrl.type === "gauge") { let initMin = ctrl.min !== undefined ? ctrl.min : 0; let initMax = ctrl.max !== undefined ? ctrl.max : 100; gaugeMeta[ctrl.id] = { min: initMin, max: initMax }; card.innerHTML = '<div class="card-title">🧭 ' + ctrl.title + '</div><div class="gauge-container"><svg class="gauge-svg" viewBox="0 0 140 140"><circle class="gauge-bg-track" cx="70" cy="70" r="60"></circle><circle id="svg-stroke-' + ctrl.id + '" class="gauge-progress" cx="70" cy="70" r="60"></circle></svg><div class="gauge-center-text"><span id="svg-txt-' + ctrl.id + '" class="gauge-value">' + initMin + '</span><span class="gauge-unit">当前实时数据</span></div></div>'; }
+            else if (ctrl.type === "time_picker") { let initTime = ctrl.value !== undefined ? ctrl.value : "12:00"; card.innerHTML = '<div class="card-title">⏰ ' + ctrl.title + '</div><div class="time-picker-wrapper"><input type="time" id="el-' + ctrl.id + '" class="iot-time-picker" value="' + initTime + '"><button class="time-submit-btn" onclick="sendUiAction(\'' + ctrl.id + '\', document.getElementById(\'el-\' + \'' + ctrl.id + '\').value)">确认提交</button></div>'; }
+            else if (ctrl.type === "map") { card.innerHTML = '<div class="card-title">🗺️ ' + ctrl.title + '</div><div id="map-obj-' + ctrl.id + '" class="iot-map-canvas"></div>'; }
+            panel.appendChild(card);
+
+            if (ctrl.type === "map") {
+                setTimeout(() => {
+                    if (mapInstances[ctrl.id] && mapInstances[ctrl.id].map) { try { mapInstances[ctrl.id].map.remove(); } catch(err) {} }
+                    let map = L.map('map-obj-' + ctrl.id, { zoomControl: false }).setView([34.3416, 108.9398], 4);
+                    let provider = ctrl.provider || 'amap'; 
+                    let layerUrl = ''; let layerOptions = { maxZoom: 18, minZoom: 2 };
+
+                    switch (provider) {
+                        case 'amap':
+                            layerUrl = 'https://webrd0{s}.is.autonavi.com/appmaptile?style=7&x={x}&y={y}&z={z}&lang=zh_cn&size=1&scale=1';
+                            layerOptions.subdomains = ["1", "2", "3", "4"];
+                            break;
+                        case 'cartodb':
+                            layerUrl = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+                            layerOptions.subdomains = 'abcd';
+                            break;
+                        case 'osm':
+                            layerUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+                            layerOptions.subdomains = ["a", "b", "c"];
+                            break;
+                        case 'google':
+                            layerUrl = 'https://mt{s}.google.com/vt/lyrs=m&hl=zh-CN&gl=cn&x={x}&y={y}&z={z}';
+                            layerOptions.subdomains = ["0", "1", "2", "3"];
+                            break;
+                        case 'local':
+                            layerUrl = 'tiles/{z}/{x}/{y}.png';
+                            layerOptions.minZoom = 4;
+                            break;
+                    }
+                    L.tileLayer(layerUrl, layerOptions).addTo(map);
+                    mapInstances[ctrl.id] = { map: map, marker: null, currentProvider: provider };
+                }, 50);
             }
         });
     }
 
-    function handleFile(input) {
-        const file = input.files[0]; if(!file) return;
-        if(file.size > 1024 * 700) return alert("文件过大 (限制 700KB)");
-        fName = file.name;
-        document.getElementById('file-info').innerText = fName + " (" + (file.size/1024).toFixed(1) + "KB)";
-        const reader = new FileReader();
-        reader.onload = (e) => { fBase64 = e.target.result; document.getElementById('btn-file-send').style.display = 'block'; };
-        reader.readAsDataURL(file);
+    function updateLiveComponent(id, val) {
+        if (gaugeMeta[id]) {
+            let meta = gaugeMeta[id]; let numVal = parseFloat(val);
+            if (numVal < meta.min) numVal = meta.min; if (numVal > meta.max) numVal = meta.max;
+            let percent = (numVal - meta.min) / (meta.max - meta.min); let strokeOffset = 377 - (percent * 377);
+            const strokeEl = document.getElementById("svg-stroke-" + id); const textEl = document.getElementById("svg-txt-" + id);
+            if (strokeEl) strokeEl.style.strokeDashoffset = strokeOffset; if (textEl) textEl.innerText = val; return;
+        }
+
+        if (mapInstances[id] && val && typeof val === 'object' && val.lat && val.lng) {
+            let instance = mapInstances[id];
+            let targetLat = parseFloat(val.lat);
+            let targetLng = parseFloat(val.lng);
+
+            // 🎯 【自适应智能纠偏】如果硬件上传的是原生 WGS84 坐标，且当前使用的是高德地图，自动调用火星加偏算法
+            if (instance.currentProvider === 'amap') {
+                let corrected = wgs84ToGcj02(targetLat, targetLng);
+                targetLat = corrected.lat;
+                targetLng = corrected.lng;
+            }
+
+            let pos = [targetLat, targetLng];
+            if (!instance.marker) { instance.marker = L.marker(pos).addTo(instance.map); instance.map.setView(pos, 14); } 
+            else { instance.marker.setLatLng(pos); }
+            if (val.info) instance.marker.bindPopup(`<b>${val.info}</b>`).openPopup();
+            return;
+        }
+
+        const el = document.getElementById("el-" + id); if (!el) return;
+        if (el.type === "checkbox") { el.checked = (val === "ON" || val === true || val === 1); } 
+        else if (el.type === "range" || el.type === "time") { el.value = val; const txt = document.getElementById("txt-" + id); if (txt) txt.innerText = val; }
     }
 
-    function sendFile() {
-        if(!client || !client.connected) return;
-        const payload = JSON.stringify({ file: fBase64, name: fName, ts: Date.now() });
-        client.publish(getTopic("wss2iot"), payload);
-        alert("文件已编码并发送");
-        document.getElementById('btn-file-send').style.display = 'none';
-    }
-
-    function displayFile(data) {
-        document.getElementById('recv-box').style.display = 'block';
-        document.getElementById('recv-name').innerText = data.name;
-        document.getElementById('dl-link').onclick = () => {
-            const a = document.createElement('a'); a.href = data.file; a.download = data.name; a.click();
-        };
-        const pre = document.getElementById('img-preview');
-        if(data.file.startsWith('data:image')) { pre.src = data.file; pre.style.display = 'block'; }
-        else { pre.style.display = 'none'; }
-    }
-
-    function sendCmd(item, cmd) {
-        if(!client || !client.connected) return;
-        client.publish(getTopic("wss2iot"), JSON.stringify({ item, cmd, ts: Date.now() }));
-    }
-
-    function sendText() {
-        const input = document.getElementById('text-input');
-        if(!client || !client.connected || !input.value) return;
-        client.publish(getTopic("wss2iot"), input.value);
-        input.value = '';
-    }
-
-    // 统一的数据分流控制函数：一条 MQTT 数据流入，同时驱动【原生 MWC 线性条】与【开源魔改环形表】
-    function updateDynamicUI(mwcProgressBarId, mwcTextId, openSourceGaugeId, value) {
-        const boundVal = Math.min(Math.max(value, 0), 100);
-        const finalNum = Math.round(boundVal);
-        
-        // 1. 驱动上半区：Google MWC 原生标签组件
-        document.getElementById(mwcTextId).innerText = finalNum;
-        document.getElementById(mwcProgressBarId).progress = boundVal / 100;
-        
-        // 2. 驱动下半区：开源魔改的仪表盘标签属性（自带极其平滑的物理惯性减速过渡动效）
-        document.getElementById(openSourceGaugeId).setAttribute('value', boundVal);
-    }
+    function sendUiAction(id, value) { if (!client || !client.connected) return; client.publish(config.pubTopic, JSON.stringify({ action: "control", id: id, value: value, ts: Date.now() })); }
 </script>
 </body>
 </html>
