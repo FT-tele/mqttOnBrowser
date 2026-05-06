@@ -134,6 +134,12 @@ html, body {
         <label>Password</label>
         <input type="password" id="cfg-pass" class="native-input" placeholder="Password">
     </div>
+	
+	<div class="form-group">
+    <label>Client ID</label>
+    <input type="text" id="cfg-client-id" class="native-input" placeholder="留空则由系统自动随机生成">
+</div>
+
     <div class="form-group">
         <label>订阅 Topic</label>
         <input type="text" id="cfg-sub-topic" class="native-input" placeholder="home/esp32/iot2wss">
@@ -142,6 +148,15 @@ html, body {
         <label>发布 Topic</label>
         <input type="text" id="cfg-pub-topic" class="native-input" placeholder="home/esp32/wss2iot">
     </div>
+	
+	<div class="form-group">
+    <label>MQTT 协议版本</label>
+    <select id="cfg-version" class="native-input" style="width: 100%; background: #1e293b; color: #fff; border: 1px solid #334155; padding: 10px; border-radius: 6px; font-size: 14px;">
+        <option value="4" selected>MQTT 3.1.1 (默认)</option>
+        <option value="5">MQTT 5.0</option>
+    </select>
+</div>
+
     <button class="native-btn" style="width:100%; margin-top:16px;" onclick="saveConfig()">保存并连接</button>
 </div>
     
@@ -276,28 +291,60 @@ class IndustrialMQTT {
             try { client.end(true); client.removeAllListeners(); } catch(e){}
         }
         
-        const wsUrl = `wss://${cfg.host}:${cfg.port}${cfg.host.includes('hivemq') || cfg.host.includes('emqx') ? '/mqtt' : ''}`;
+        // 1. 锁死当前连接生命周期内的唯一 Client ID (解决遗嘱与连接 ID 不一致的严重 Bug)
+        const finalClientId = (cfg.clientId && cfg.clientId.trim() !== "") ? cfg.clientId.trim() : this.getClientId();
+        
+        // 2. 动态判断 5.0 协议
+        const isMqtt5 = (cfg.protocolVersion === 5);
 
+      // 3. 精准适配路径（直接替换掉之前的 hasCustomPath 逻辑）
+        let path = '';
+        if (cfg.host.includes('bemfa')) {
+            path = '/wss';
+        } else if (cfg.host.includes('hivemq') || cfg.host.includes('emqx')) {
+            path = '/mqtt';
+        }
+        
+        // 成功拼接出：wss://bemfa.com:9504/wss
+        const wsUrl = `wss://${cfg.host}:${cfg.port}${path}`;
+		console.log("🚀 准备连接，最终请求参数：", {
+    wsUrl: wsUrl,
+    clientId: finalClientId,
+    username: cfg.user || undefined,
+    password: cfg.pass || undefined,
+    protocolVersion: cfg.protocolVersion || 4
+});
+
+        // 4. 发起高可靠连接
         client = mqtt.connect(wsUrl, {
-            clientId: this.getClientId(),
-            username: cfg.user || undefined,
+            clientId: finalClientId,
+            protocolVersion: cfg.protocolVersion || 4, 
+            username: cfg.user || undefined, // 完美支持空输入时匿名连接
             password: cfg.pass || undefined,
             keepalive: 45,
-            clean: false,
+            
+            // 完美适配 5.0 的会话保持机制与 3.1.1 的离线消息持久化
+            clean: isMqtt5 ? true : false, 
+            ...(isMqtt5 ? { properties: { sessionExpiryInterval: 300 } } : {}),
+            
             reconnectPeriod: 6000,
             connectTimeout: 12000,
             will: {
                 topic: cfg.pubTopic,
-                payload: JSON.stringify({type: "offline", clientId: this.getClientId(), ts: Date.now()}),
+                // 🚀 修复：遗嘱里的 clientId 与连接 clientId 保持绝对一致
+                payload: JSON.stringify({type: "offline", clientId: finalClientId, ts: Date.now()}),
                 qos: 1,
                 retain: true
             }
         });
 
+        // 5. 事件监听器配置
         client.on('connect', () => {
             this.status = "connected";
-            statEl.textContent = "在线监听";
-            statEl.className = "online-tag";
+            if (statEl) {
+                statEl.textContent = "在线监听";
+                statEl.className = "online-tag";
+            }
             client.subscribe(cfg.subTopic, { qos: 1 });
             this.startHeartbeat();
             showToast("🚀 安全通道已建立");
@@ -308,15 +355,19 @@ class IndustrialMQTT {
             this.processPayload(payload);
         });
 
-        client.on('reconnect', () => { statEl.textContent = "正在重连..."; });
+        client.on('reconnect', () => { if (statEl) statEl.textContent = "正在重连..."; });
+        
         client.on('close', () => { 
             this.status = "offline"; 
-            statEl.textContent = "已断开"; 
+            if (statEl) statEl.textContent = "已断开"; 
             this.stopHeartbeat(); 
         });
+        
         client.on('error', (err) => Logger.log('error', 'MQTT Error', err));
     }
 
+    // 💡 系统保底生成逻辑：当前设计在同一台手机上会保持持久化不冲突。
+    // 如果你希望每次刷新页面都彻底变个新 ID，把 localStorage 的读写删掉，直接 return 随机串即可。
     getClientId() {
         let id = localStorage.getItem('iot_fixed_client_id');
         if (!id) {
@@ -354,13 +405,12 @@ class IndustrialMQTT {
             const rawStr = payload.toString();
             const data = JSON.parse(rawStr);
             
+            // 完美兼容：独立初始化、高频单点更新、以及打包批量合并更新 (ui_update_batch)
             if (data.type === "ui_setup" && Array.isArray(data.controls)) {
                 UIFactory.renderLiveUI(data.controls);
             } else if (data.type === "ui_update" && data.id !== undefined) {
                 UIFactory.updateLiveComponent(data.id, data.val);
-            } 
-            // ⬇️ 只需要把下面这段批量更新的逻辑，紧跟在上面 ui_update 的大括号后面即可
-            else if (data.type === "ui_update_batch" && Array.isArray(data.data)) {
+            } else if (data.type === "ui_update_batch" && Array.isArray(data.data)) {
                 data.data.forEach(item => {
                     UIFactory.updateLiveComponent(item.id, item.val);
                 });
@@ -825,26 +875,45 @@ window.onload = function() {
     }
 };
 
+
 window.saveConfig = function() { 
-  const host = document.getElementById('cfg-host').value.trim() || document.getElementById('cfg-host').placeholder;
-    const port = parseInt(document.getElementById('cfg-port').value) || parseInt(document.getElementById('cfg-port').placeholder);
-    const user = document.getElementById('cfg-user').value.trim() || document.getElementById('cfg-user').placeholder;
-    const pass = document.getElementById('cfg-pass').value || document.getElementById('cfg-pass').placeholder;
+    const host = document.getElementById('cfg-host').value.trim() || document.getElementById('cfg-host').placeholder;
+    const port = parseInt(document.getElementById('cfg-port').value, 10) || parseInt(document.getElementById('cfg-port').placeholder, 10);
     const subTopic = document.getElementById('cfg-sub-topic').value.trim() || document.getElementById('cfg-sub-topic').placeholder;
     const pubTopic = document.getElementById('cfg-pub-topic').value.trim() || document.getElementById('cfg-pub-topic').placeholder;
+    
+    // 读取下拉列表选中的协议版本数字 (4 代表 3.1.1，5 代表 5.0)
+    const protocolVersion = parseInt(document.getElementById('cfg-version').value, 10);
+
     if (!host || !port || !subTopic || !pubTopic) {
         showToast("❌ 通道参数不可为空！"); return;
     }
 
+    // 🚀 【手动新增位置 1】：从 HTML 输入框中读取你输入的 Client ID（假设你的 input 标签 id 是 cfg-client-id）
+    const clientIdEl = document.getElementById('cfg-client-id');
+    const rawClientId = clientIdEl ? clientIdEl.value.trim() : "";
+
+    const rawUser = document.getElementById('cfg-user').value.trim();
+    const rawPass = document.getElementById('cfg-pass').value;
+
     config = {
-        host: host, port: parseInt(port, 10),
-        user: document.getElementById('cfg-user').value.trim(),
-        pass: document.getElementById('cfg-pass').value.trim(),
-        subTopic: subTopic, pubTopic: pubTopic
+        host: host, 
+        port: port,
+        protocolVersion: protocolVersion,
+        
+        // 🚀 【手动新增位置 2】：将读取到的 clientId 塞进本地缓存对象中
+        clientId: rawClientId !== "" ? rawClientId : undefined, 
+        
+        user: rawUser !== "" ? rawUser : undefined,
+        pass: rawPass !== "" ? rawPass : undefined,
+        subTopic: subTopic, 
+        pubTopic: pubTopic
     };
+    
     safeSetItem('live_dynamic_cfg', config);
     location.reload();
 };
+
 
 window.sendUiAction = function(id, value) {
     if (window.mqttMgr) window.mqttMgr.publish(id, value);
